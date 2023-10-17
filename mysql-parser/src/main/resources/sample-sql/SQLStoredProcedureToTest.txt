@@ -1,0 +1,2786 @@
+ 
+
+SET ANSI_NULLS ON
+
+GO
+
+SET QUOTED_IDENTIFIER ON
+
+GO
+
+ 
+
+ALTER PROCEDURE [dbo].[spSTPImportCalculateTotals]
+
+(
+
+  @ImportJobID int = null,
+
+  @InvoiceJobID int = null,
+
+  @SupplierInvoiceNo varchar(32) = null
+
+)
+
+AS
+
+-- spSTPImportCalculateTotals
+
+-----------------------------
+
+--
+
+-- Purpose:
+
+-----------
+
+-- 
+
+-- Routine to calculate CDR totals based on either InvoiceJobID (invoice run per client), 
+
+-- or ImportJobID (tagged to each CDR file as imported).
+
+--  
+
+-- Execution steps:
+
+-------------------
+
+--
+
+-- 1.       If @ImportJobID and @SupplierInvoiceNo has been specified, stamp the 
+
+--                ImportJob record with the specified SupplierInvoiceNo. This is so CDR
+
+--                files imported can be linked back to the original supplier invoice number
+
+--                if specified when importing.
+
+--
+
+-- 2.       If an @InvoiceJobID has been specified when calling....
+
+--
+
+-- 2.1.           Reset existing InvoiceJobID of all CDR's currently tagged.
+
+--
+
+-- 2.2.           Get ClientID, BillingCycleID and ClientID for current InvoiceJobID
+
+--
+
+-- 2.3.           Round all durations for all CDR's which match the current invoice criteria
+
+--                and do not have FBB-related billing schemes (ClientSchemeID not 
+
+--                found in #FBBSchemes)
+
+--
+
+-- 2.4.           Calculate all costs for CDR's rounded in step 2.3.
+
+--
+
+-- 2.5.           Calculate all background and streaming totals in the DataCDR table
+
+--                for CDR's which match current invoice criteria and do not have 
+
+--                FBB-related billing schemes.
+
+--
+
+-- 2.6.           Update DataCDR totals calculated in step 2.5. into the CDR table.
+
+--
+
+-- 2.7.           If any of the billing schemes used in this invoice have any tiered
+
+--                pricing...
+
+--
+
+-- 2.7.1.   Create temporary table to store rolling totals for each equipment,
+
+--                invoice start dates and total CDR cost
+
+--
+
+-- 2.7.2.   Create cursor to scan through all CDR's processed in current invoice
+
+--                job.
+
+--
+
+-- 2.7.3.   Looping through each record...
+
+--
+
+-- 2.7.3.1. Calculate invoice start date for current MSISDN
+
+--
+
+-- 2.7.3.2.       If the MSISDN does not exist in the temporary table...
+
+--
+
+-- 2.7.3.2.1.     Got the total cost of all calls before the current CDR for the
+
+--                      invoice the CDR belongs to
+
+--
+
+-- 2.7.3.2.2.     Update temporary table accordingly.
+
+--
+
+-- 2.7.3.3. Check if tiered rate occurs for current rolling total of this MSISDN
+
+--
+
+-- 2.7.3.4. Recalculate CDR cost using tiered total if so tiered rate found
+
+--
+
+-- 2.7.3.5. Update temp table with current rolling cost for this MSISDN
+
+--
+
+-- 2.7.3.6  Fetch next and loop
+
+--
+
+-- 2.7.4.   Close cursor and drop temporary tables
+
+--
+
+-- 2.8.           Set the InvoiceJobID for all CDR's calculated so far...
+
+--
+
+-- 3.       If an ImportJobID has been specified when calling...
+
+--
+
+-- 3.1.           Check if the totals of CDR's should be calculated on import....
+
+--
+
+-- 3.1.1.   Find all FBB-related ClientSchemeID's for all CDR's imported and
+
+--                store in #ImpFBBSchemes.
+
+--
+
+-- 3.1.2.   Similar to step 2.4, round all non-FBB CDR's for this ImportJobID
+
+--
+
+-- 3.1.3.   Now calculate the CDR totals for all non-FBB CDR's rounded in step
+
+--                3.1.2.
+
+--
+
+-- 3.1.4.   Calculate the background and streaming IP totals for all non-FBB CDR's
+
+--                in the DataCDR table which match the specified @ImportJobID
+
+--
+
+-- 3.1.5.   Update CDR records with the totals for the DataCDR records calculated
+
+--                in step 3.1.4.
+
+--
+
+-- 3.1.6.   If this ImportJobID contains FBB CDR's (#ImpFBBSchemes contains
+
+--                records)...
+
+--
+
+-- 3.1.6.1. Calculate rounded durations for FBB-specific CDR's within the current
+
+--                import, matching the SchemeTariffs.AmountAbove field using the same
+
+--                method specified in step 2.8.1.
+
+--
+
+-- 3.1.6.2. Calculate the costs of all CDR records rounded in step 3.1.6.2.
+
+--
+
+-- 3.1.6.3. Calculate all FBB Standard and Streaming IP totals in the DataCDR
+
+--                table, similar to step 3.1.4.
+
+--
+
+-- 3.1.6.4. Update CDR records with the totals of the DataCDR records calculated
+
+--                in step 3.1.6.3.
+
+--
+
+-- 3.1.7.   Stamp all DataCDR records for this ImportJobID as Calculated. Done so
+
+--                the DataCDR records will not be added again to the total of a data
+
+--                session record in the CDR table.
+
+--
+
+-- 3.1.8.   Create temp table #tmpUpdatePrepaidCosts containing the total amount
+
+--                of usage from prepaid and post-paid monitoring SIM cards within the 
+
+--                current import.
+
+--
+
+-- 3.1.9.   Update the SubscriberEquipment table with prepaid totals caluclated in
+
+--                step 3.1.8.
+
+--
+
+-- 3.1.10.  Update the SubscriberEquipment table with postpaid totals calculated in
+
+--                step 3.1.9 - used for the monitoring and alerting of SIM cards with
+
+--                limits specified.
+
+--
+
+-- 3.1.11.  Drop temporary tables #tmpUpdatePrepaidCosts and #impFBBSchemes.
+
+--
+
+-- 4.       Delete any ImportJob records with no associated CDR's (keep things tidy).
+
+ 
+
+-- Version history:
+
+-------------------
+
+--
+
+-- 2008-05-26 - FBB calculations segregated from all other CDR calculations for both
+
+--              ImportJobID and InvoiceJobID sections, covered in steps 2.8.* and
+
+--                      3.1.6.*
+
+--
+
+-- 2008-05-28 - Bug fix on step step 2.4. - criteria was searching for FBB 
+
+--                      ClientSchemes, rather than non-FBB ClientSchemes. Now resolved.
+
+--
+
+-- 2008-06-02 - Removed seperate FBB calculations due to performance issues. Included
+
+--                      the FBB MonthlyCostAllowance calculation into the regular CDR calculations
+
+--                      (only if applicable to the billing scheme) and added sections
+
+--                      2.7.* and 3.*** to calculate tiered pricing (if applicable) using a cursor.
+
+      SET NOCOUNT ON
+
+      DECLARE @RoundDuration float, @OurCost money, @RoundStreamVolume float
+      DECLARE @CalcDuration float, @LastCost money
+      DECLARE @RC int
+      DECLARE @SPRoundDuration float, @SPCalcCost money, @SPRoundStreamVolume float
+      DECLARE @SPCalcDuration float
+      DECLARE @ClientID int, @UpToDate datetime
+      DECLARE @CalculateOnImport bit
+      DECLARE @BillingCycleID int
+      DECLARE @MinCharge money
+      DECLARE @CDRCost money, @TotalCDRCost money
+      DECLARE @StartDate datetime
+
+      SET @StartDate = GETDATE()
+
+    --PRINT CONVERT(varchar, DATEDIFF(s, @StartDate, GETDATE())) + ' - SP Started'
+      SET @ImportJobID = COALESCE(@ImportJobID, 0)
+      SET @InvoiceJobID = COALESCE(@InvoiceJobID, 0)
+
+    -- Calculate CDR Totals
+
+      IF(@ImportJobID>0 AND @SupplierInvoiceNo IS NOT NULL)
+        UPDATE ImportJobs SET SupplierInvoiceNo = @SupplierInvoiceNo WHERE ImportJobID = @ImportJobID
+
+      IF(@InvoiceJobID>0)
+        BEGIN
+            -- 2.1. Reset existing InvoiceJobID of all CDR's currently tagged.
+            --PRINT CONVERT(varchar, DATEDIFF(s, @StartDate, GETDATE())) + ' - Blank InvoiceJobID'
+            UPDATE CDR SET InvoiceJobID = NULL WHERE InvoiceJobID = @InvoiceJobID
+
+            -- 2.2. Get ClientID, BillingCycleID and ClientID for current
+            -- InvoiceJobID
+
+            SELECT @UpToDate = UpToDate, 
+                               @ClientID = ClientID, @BillingCycleID = BillingCycleID
+            FROM InvoiceJobs WHERE InvoiceJobID = @InvoiceJobID 
+
+            -- 2.4 Calulate our and SP rounded durations for non-FBB
+ 
+
+          --PRINT CONVERT(varchar, DATEDIFF(s, @StartDate, GETDATE())) + ' - Update CDR with ClientSchemeID and ProcessingID'
+
+            UPDATE CDR SET 
+                   RoundDuration = dbo.fnSTPImportRoundIncrements(dbo.CDR.Duration, 
+                      dbo.SchemeTariffs.MinVolume, dbo.SchemeTariffs.Increments, dbo.SchemeTariffs.DivideBy),
+
+                   SPRoundDuration = dbo.fnSTPImportRoundIncrements(dbo.CDR.Duration, 
+
+                              dbo.SchemeTariffs.SPMinVolume, dbo.SchemeTariffs.SPIncrements, dbo.SchemeTariffs.SPDivideBy),
+
+                   CDR.ProcessingID = @InvoiceJobID,
+
+                   CDR.ClientSchemeID = ClientSchemes.ClientSchemeID                
+
+            FROM CDR INNER JOIN
+
+                   dbo.OceanRegions ON 
+
+                   dbo.CDR.OceanRegionID = dbo.OceanRegions.OceanRegionID
+
+                        INNER JOIN 
+
+                   dbo.SubscriberEquipmentPropValues ON 
+
+                   dbo.CDR.Initiator = dbo.SubscriberEquipmentPropValues.PropValue
+
+                        INNER JOIN 
+
+                   dbo.SubscriberEquipment ON 
+
+                   dbo.SubscriberEquipmentPropValues.SubscriberEquipmentID
+
+                        = dbo.SubscriberEquipment.SubscriberEquipmentID
+
+                        AND dbo.SubscriberEquipment.IsPrepaid = 0
+
+                        INNER JOIN Subscribers ON
+
+                          SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+                        INNER JOIN
+
+                   dbo.EquipmentSchemes ON 
+
+                   dbo.SubscriberEquipment.SubscriberEquipmentID = dbo.EquipmentSchemes.SubscriberEquipmentID
+
+                  AND dbo.EquipmentSchemes.DateStart <= CDR.CallDate
+
+                  AND dbo.EquipmentSchemes.DateFinish >= CDR.CallDate
+
+                        AND 
+
+                   dbo.CDR.CallDate >= dbo.EquipmentSchemes.DateStart
+
+                        AND 
+
+                   dbo.CDR.CallDate <= dbo.EquipmentSchemes.DateFinish
+
+                        AND 
+
+                   dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                        AND 
+
+                   dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+                        INNER JOIN
+
+                   dbo.ClientSchemes ON 
+
+                   dbo.EquipmentSchemes.ClientSchemeID = dbo.ClientSchemes.ClientSchemeID
+
+            AND dbo.SubscriberEquipment.EquipmentID = ClientSchemes.EquipmentID
+
+                  INNER JOIN
+
+                   dbo.SchemeTariffs ON 
+
+                   dbo.EquipmentSchemes.ClientSchemeID = dbo.SchemeTariffs.ClientSchemeID
+
+                        AND 
+
+                   dbo.SchemeTariffs.AirtimeProviderID = dbo.CDR.AirtimeProviderID
+
+                        AND 
+
+                   dbo.SchemeTariffs.InitiatorCallTypeID = dbo.CDR.InitiatorCallTypeID
+
+                        AND 
+
+                   dbo.SchemeTariffs.CalledToCallTypeID = dbo.CDR.CalledToCallTypeID
+
+                        AND 
+
+                   dbo.CDR.CallTime >= dbo.SchemeTariffs.StartTime
+
+                        AND 
+
+                   dbo.CDR.CallTime <= dbo.SchemeTariffs.EndTime
+
+                        AND 
+
+                   dbo.SchemeTariffs.IsAORE = dbo.OceanRegions.IsAORE
+
+                        AND
+
+                   dbo.SchemeTariffs.IsAORW = dbo.OceanRegions.IsAORW
+
+                        AND
+
+                   dbo.SchemeTariffs.IsIOR = dbo.OceanRegions.IsIOR
+
+                        AND
+
+                   dbo.SchemeTariffs.IsPOR = dbo.OceanRegions.IsPOR
+
+                        AND
+
+                   dbo.SchemeTariffs.AmountAbove = 0
+
+                   INNER JOIN ClientAddresses 
+
+                              ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+            WHERE CDR.InvoiceJobID IS NULL 
+
+        AND CDR.CallComplete = 1
+
+            AND ClientAddresses.ClientID = @ClientID
+
+            AND Subscribers.BillingCycleID = COALESCE(@BillingCycleID, Subscribers.BillingCycleID)
+
+            AND CDR.CallDate <= @UpToDate
+
+ 
+
+        -- 2.4. calculate call costs from rounded durations (non-FBB)
+
+        --- *******2009-07-14 Bug22 
+
+            SELECT *--CallTypeID 
+
+            INTO #CallTypes --#TEMP  --- drop table #TEMP select * from #CallTypes
+
+            FROM CallTypes --WHERE IsBGANStandardIP=0 AND IsBGANStreamingIP=0
+
+            --- ************* 
+
+            
+
+            --PRINT CONVERT(varchar, DATEDIFF(s, @StartDate, GETDATE())) + ' - Calculate totals using inclusive method'
+
+            UPDATE CDR
+
+             SET @CalcDuration = 
+
+                              CASE WHEN ClientSchemes.MonthlyInclusiveMins = 0
+
+                                    --OR CDR.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSBDChecking=1) THEN
+
+                                    OR (CDR.InitiatorCallTypeID IN (SELECT CallTypeID FROM #CallTypes WHERE IsIridiumSBDChecking=1)) 
+
+                                    OR (CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM #CallTypes WHERE ServiceCodeMask LIKE 'BSMS')) 
+
+                                    OR (CDR.InitiatorCallTypeID IN (SELECT CallTypeID FROM #CallTypes WHERE IsIridiumSMS=1)) THEN
+
+                                          RoundDuration
+
+                              ELSE
+
+                                    dbo.fnSTPImportCapValue(
+
+                                    COALESCE(
+
+                                     CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                          -- Begin New Code by POM 20090714 to solve BugZilla No.175
+
+                                                (SELECT SUM(RoundDuration) 
+
+                                                 FROM CDR AS CDR2 
+
+                                                      INNER JOIN (SELECT CallTypeID FROM #CallTypes WHERE IsBGANStandardIP=0 AND IsBGANStreamingIP=0)TEMP
+
+                                                            ON CDR2.CalledToCallTypeID  = TEMP.CallTypeID--TEMP.CallTypeID
+
+                                                WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime <= CDR.CallDateTime
+
+                                                AND CDR2.Initiator = CDR.Initiator
+
+                                                )
+
+                                          -- End New Code
+
+                                /*
+
+                                                (SELECT SUM(RoundDuration) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime <= CDR.CallDateTime
+
+                                                AND CDR2.Initiator = CDR.Initiator
+
+                                                AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                (SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+                                              */
+
+                            ELSE
+
+                                                (SELECT SUM(RoundDuration) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime <= CDR.CallDateTime
+
+                                                AND CDR2.Initiator IN
+
+                                                (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                          END, 0) 
+
+                                          - ClientSchemes.MonthlyInclusiveMins, 0, RoundDuration)
+
+                                    END, 
+
+              --Add MonthlyInclusive SMS - Woot Oct 15, 2007
+
+       @CalcDuration = 
+
+                                    CASE WHEN ClientSchemes.MonthlyInclusiveSMS = 0 OR ((CDR.InitiatorCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) AND (CDR.CalledToCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))) THEN
+
+                                          @CalcDuration
+
+                                    ELSE
+
+         dbo.fnSTPImportCapValue(
+
+                                    COALESCE(
+
+                                     CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                                (SELECT SUM(RoundDuration) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime <= CDR.CallDateTime
+
+                                                AND CDR2.Initiator = CDR.Initiator
+
+                                                --AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                --(SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+            AND ((CDR2.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) OR (CDR2.CalledToCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))))
+
+                                          ELSE
+
+                                                (SELECT SUM(RoundDuration) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime <= CDR.CallDateTime
+
+                                                AND CDR2.Initiator IN
+
+                                                (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                          END, 0) 
+
+                                          - ClientSchemes.MonthlyInclusiveSMS, 0, RoundDuration)
+
+                                    END,
+
+      --                @Cost = ROUND(CONVERT(money, @CalcDuration * dbo.ProviderTariffs.Rate), 2),
+
+      -----Cost missing when importing--Woot 14 Feb 2007
+
+      /*                      @Cost = 
+
+                        CASE 
+
+                                    WHEN dbo.ProviderTariffs.Rate Is NOT NULL THEN
+
+                                          ROUND(CONVERT(money, @CalcDuration * dbo.ProviderTariffs.Rate), 2)
+
+                                                      ELSE
+
+                                                                  dbo.CDR.Cost
+
+                                                      END,*/
+
+      ------End--    
+
+ 
+
+ 
+
+-- Standard BGAN way to produce OurCost
+
+--                      @OurCost = 
+
+--                            CASE 
+
+--                                  WHEN dbo.SchemeTariffs.Rate IS NOT NULL THEN
+
+--                                        ROUND(CONVERT(money, @CalcDuration * dbo.SchemeTariffs.Rate), 2)
+
+--    /*                            WHEN dbo.ProviderTariffs.Rate IS NOT NULL 
+
+--                                  AND dbo.ClientSchemes.SupplierPercentageIncrease IS NOT NULL THEN
+
+--                                        ROUND(CONVERT(money, @Cost * (1 + (ClientSchemes.SupplierPercentageIncrease / 100))), 2) */
+
+--                            END,
+
+--                  @OurCost = CASE WHEN @OurCost < COALESCE(SchemeTariffs.MinCharge, 0) THEN
+
+--                    COALESCE(SchemeTariffs.MinCharge, 0)
+
+--                  ELSE
+
+--                    @OurCost
+
+--                  END,
+
+                    
+
+ 
+
+                              @CDRCost = 
+
+                                    CASE 
+
+                                          WHEN dbo.SchemeTariffs.Rate IS NOT NULL THEN
+
+                                                ROUND(CONVERT(money, @CalcDuration * dbo.SchemeTariffs.Rate), 2)
+
+            /*                            WHEN dbo.ProviderTariffs.Rate IS NOT NULL 
+
+                                          AND dbo.ClientSchemes.SupplierPercentageIncrease IS NOT NULL THEN
+
+                                                ROUND(CONVERT(money, @Cost * (1 + (ClientSchemes.SupplierPercentageIncrease / 100))), 2) */
+
+                                    END,
+
+                          @CDRCost = CASE WHEN @CDRCost < COALESCE(SchemeTariffs.MinCharge, 0) THEN
+
+                              COALESCE(SchemeTariffs.MinCharge, 0)
+
+                          ELSE
+
+                              @CDRCost
+
+                          END,
+
+                          
+
+                          -- Total CDR cost contains the total cost of all calls from
+
+                          -- beginning of month to present date
+
+                          
+
+--                      @TotalCDRCost = 
+
+--                            CASE
+
+--                              WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+--                              AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance) 
+
+--                              THEN
+
+--                                  @CDRCost + COALESCE((SELECT SUM(CDRCost) FROM CDR AS CDR3 WHERE
+
+--                                                    CDR3.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+--                                                    CDR3.CallDateTime < CDR.CallDateTime
+
+--                                                    AND CDR3.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+--                                                    AND CDR3.Initiator IN (SELECT PropValue COLLATE Latin1_General_CI_AS FROM dbo.fnSTPGetGroupInitiators(SubscriberEquipment.SubscriberEquipmentID, CDR.Initiator))), 0)
+
+--                              ELSE
+
+--                                  0
+
+--                              END,
+
+                          
+
+                          -- If $ allowance specified in the billing scheme,
+
+                          -- subtract total cost of all calls from monthly allowance
+
+                          -- then limit value between 0 and cost of this call (@CDRCost)
+
+                          
+
+--                        @OurCost = 
+
+--                            CASE
+
+--                              WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+--                              AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+--                              THEN
+
+--                                  dbo.fnSTPImportCapValue(@TotalCDRCost - ClientSchemes.MonthlyCostAllowance, 0, @CDRCost)
+
+--                              ELSE
+
+--                                  @CDRCost
+
+--                              END,
+
+ 
+
+ 
+
+                    --- repeat again for SP costs
+
+                    
+
+                        @SPCalcDuration = 
+
+                              CASE WHEN ClientSchemes.SPMonthlyInclusiveMins = 0 THEN
+
+                                          SPRoundDuration
+
+                                    ELSE
+
+                                    dbo.fnSTPImportCapValue(
+
+                                     CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                          -- Begin New Code by POM 20090527 to solve BugZilla No.175
+
+                                                (SELECT COALESCE(SUM(SPRoundDuration), 0) 
+
+                                                FROM CDR AS CDR2 
+
+                                                      INNER JOIN (SELECT CallTypeID FROM #CallTypes WHERE IsBGANStandardIP=0 AND IsBGANStreamingIP=0)TEMP
+
+                                                      ON CDR2.CalledToCallTypeID = TEMP.CallTypeID--TEMP.CallTypeID
+
+                                                WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime < CDR.CallDateTime
+
+                                                AND CDR2.Initiator = CDR.Initiator)
+
+ 
+
+                                          -- End New Code
+
+                                                /*
+
+                                                (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime < CDR.CallDateTime
+
+                                                AND CDR2.Initiator = CDR.Initiator
+
+                                                AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                (SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+                                                */    
+
+                                          ELSE
+
+                                                (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime < CDR.CallDateTime
+
+                                                AND CDR2.Initiator IN
+
+                                                (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                          END - ClientSchemes.SPMonthlyInclusiveMins, 0, SPRoundDuration)
+
+                                    END,
+
+        --Add SP MonthlyInclusive SMS - Woot Oct 15, 2007
+
+       @SPCalcDuration = 
+
+                                    CASE WHEN ClientSchemes.SPMonthlyInclusiveSMS = 0 OR ((CDR.InitiatorCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) AND (CDR.CalledToCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))) THEN
+
+                                          @SPCalcDuration
+
+                                    ELSE
+
+         dbo.fnSTPImportCapValue(
+
+                                     CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                                (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime < CDR.CallDateTime
+
+                                                AND CDR2.Initiator = CDR.Initiator
+
+            --    AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                --(SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+                                                AND ((CDR2.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) OR (CDR2.CalledToCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))))
+
+                                          ELSE
+
+                                                (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                CDR2.CallDateTime < CDR.CallDateTime
+
+                                                AND CDR2.Initiator IN
+
+                                                (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                          END - ClientSchemes.SPMonthlyInclusiveSMS, 0, SPRoundDuration)
+
+--                                  dbo.fnSTPImportCapValue(
+
+--                                              (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+--                                              CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+--                                              CDR2.CallDateTime <= CDR.CallDateTime
+
+--                                              AND CDR2.Initiator IN (SELECT PropValue FROM dbo.fnSTPGetGroupInitiators(SubscriberEquipment.SubscriberEquipmentID, CDR.Initiator))
+
+--                                              AND ((CDR2.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) OR (CDR2.CalledToCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS')))) 
+
+--                                        - ClientSchemes.SPMonthlyInclusiveSMS, 0, SPRoundDuration)
+
+                                    END,  
+
+                        @SPCalcCost = 
+
+                              CASE 
+
+                                    WHEN dbo.SchemeTariffs.SPRate IS NOT NULL THEN
+
+                                          ROUND(CONVERT(money, @SPCalcDuration * dbo.SchemeTariffs.SPRate), 2)
+
+                              END,
+
+                    @SPCalcCost = CASE WHEN @SPCalcCost < COALESCE(SchemeTariffs.SPMinCharge, 0) THEN
+
+                        COALESCE(SchemeTariffs.SPMinCharge, 0)
+
+                    ELSE
+
+                        @SPCalcCost
+
+                    END,                    
+
+                    
+
+                    -- write to db row
+
+                    
+
+                        -- Cost = @Cost, 
+
+                        --OurCost = @OurCost, --Woot Thuraya..3 May 2008
+
+--                   OurCost = CASE 
+
+--                                   WHEN dbo.CDR.Initiator LIKE '88216[25]%' THEN
+
+--                                     dbo.CDR.Cost
+
+--                                    ELSE
+
+--                                     @OurCost
+
+--                                    END,
+
+                        Rate = dbo.SchemeTariffs.Rate,
+
+                        SPCalcCost = @SPCalcCost, SPCalcRate = dbo.SchemeTariffs.SPRate,
+
+                                CalcDuration = @CalcDuration,
+
+                        CDRCost = @CDRCost
+
+            FROM CDR INNER JOIN
+
+                   dbo.OceanRegions ON 
+
+                   dbo.CDR.OceanRegionID = dbo.OceanRegions.OceanRegionID
+
+                        INNER JOIN 
+
+                   dbo.SubscriberEquipmentPropValues ON 
+
+                   dbo.CDR.Initiator = dbo.SubscriberEquipmentPropValues.PropValue
+
+                        INNER JOIN 
+
+                   dbo.SubscriberEquipment ON 
+
+                   dbo.SubscriberEquipmentPropValues.SubscriberEquipmentID
+
+                        = dbo.SubscriberEquipment.SubscriberEquipmentID
+
+                        AND dbo.SubscriberEquipment.IsPrepaid = 0
+
+                        INNER JOIN Subscribers ON
+
+                          SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+                        INNER JOIN
+
+                   dbo.EquipmentSchemes ON 
+
+                   dbo.SubscriberEquipment.SubscriberEquipmentID = dbo.EquipmentSchemes.SubscriberEquipmentID
+
+                  AND dbo.EquipmentSchemes.DateStart <= CDR.CallDate
+
+                  AND dbo.EquipmentSchemes.DateFinish >= CDR.CallDate
+
+                        AND 
+
+                   dbo.CDR.CallDate >= dbo.EquipmentSchemes.DateStart
+
+                        AND 
+
+                   dbo.CDR.CallDate <= dbo.EquipmentSchemes.DateFinish
+
+                        AND 
+
+                   dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                        AND 
+
+                   dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+                        INNER JOIN
+
+                   dbo.ClientSchemes ON 
+
+                   dbo.EquipmentSchemes.ClientSchemeID = dbo.ClientSchemes.ClientSchemeID
+
+            AND dbo.SubscriberEquipment.EquipmentID = ClientSchemes.EquipmentID
+
+                  INNER JOIN
+
+                   dbo.SchemeTariffs ON 
+
+                   dbo.EquipmentSchemes.ClientSchemeID = dbo.SchemeTariffs.ClientSchemeID
+
+                        AND 
+
+                   dbo.SchemeTariffs.AirtimeProviderID = dbo.CDR.AirtimeProviderID
+
+                        AND 
+
+                   dbo.SchemeTariffs.InitiatorCallTypeID = dbo.CDR.InitiatorCallTypeID
+
+                        AND 
+
+                   dbo.SchemeTariffs.CalledToCallTypeID = dbo.CDR.CalledToCallTypeID
+
+                        AND 
+
+                   dbo.CDR.CallTime >= dbo.SchemeTariffs.StartTime
+
+                        AND 
+
+                   dbo.CDR.CallTime <= dbo.SchemeTariffs.EndTime
+
+                        AND 
+
+                   dbo.SchemeTariffs.IsAORE = dbo.OceanRegions.IsAORE
+
+                        AND
+
+                   dbo.SchemeTariffs.IsAORW = dbo.OceanRegions.IsAORW
+
+                        AND
+
+                   dbo.SchemeTariffs.IsIOR = dbo.OceanRegions.IsIOR
+
+                        AND
+
+                   dbo.SchemeTariffs.IsPOR = dbo.OceanRegions.IsPOR
+
+                        AND
+
+                   dbo.SchemeTariffs.AmountAbove = 0
+
+                   INNER JOIN ClientAddresses 
+
+                              ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+                  WHERE CDR.InvoiceJobID IS NULL
+
+                  AND CDR.CallComplete = 1 
+
+                  AND ClientAddresses.ClientID = @ClientID
+
+                  AND Subscribers.BillingCycleID = COALESCE(@BillingCycleID, Subscribers.BillingCycleID)
+
+                  AND CDR.CallDate <= @UpToDate
+
+ 
+
+            -- 2.5. Calculate background and streaming data totals (non-FBB)
+
+ 
+
+            --PRINT CONVERT(varchar, DATEDIFF(s, @StartDate, GETDATE())) + ' - Calculate data CDR totals'
+
+ 
+
+            UPDATE DataCDR
+
+            SET 
+
+            @RoundStreamVolume = dbo.fnSTPImportRoundIncrements(DataCDR.UpstreamVolume, 
+
+                  SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy) + 
+
+                  dbo.fnSTPImportRoundIncrements(DataCDR.DownstreamVolume,  
+
+                  SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy),
+
+            @OurCost =
+
+                  CASE WHEN ClientSchemes.MonthlyInclusiveMB = 0 THEN
+
+                  ROUND(CONVERT(money,@RoundStreamVolume
+
+                  * SchemeDataTariffs.CostPerMB), 2)
+
+                  ELSE
+
+             ROUND(CONVERT(money, dbo.fnSTPImportCapValue(                    
+
+                  -- convert to MB
+
+                              --dbo.fnSTPImportRoundIncrements(
+
+                  COALESCE(
+
+                              
+
+                  CASE WHEN ClientSchemes.InclusiveShared = 1 THEN
+
+                                    ISNULL( --- BEGIN Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator
+
+                        (SELECT SUM(RoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                        DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                        DataCDR2.CallDateTime < DataCDR.CallDateTime
+
+                        AND DataCDR2.Initiator IN
+
+                        (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                        WHERE vwSTPImportSharedSchemes.FromInitiator = DataCDR.Initiator
+
+                        AND vwSTPImportSharedSchemes.DateStart <= DataCDR.CallDate
+
+                        AND vwSTPImportSharedSchemes.DateFinish >= DataCDR.CallDate))   
+
+                                    , 0 ) --- END Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator                 
+
+                  ELSE
+
+                                    ISNULL( --- BEGIN Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator
+
+                        (SELECT SUM(RoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                        DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                        DataCDR2.CallDateTime < DataCDR.CallDateTime
+
+                        AND DataCDR2.Initiator = DataCDR.Initiator)   
+
+                                    , 0 ) --- END Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator                 
+
+                  END + @RoundStreamVolume, 0)
+
+                              
+
+                  --, SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy)
+
+                  -- end convert
+
+ 
+
+                  - ClientSchemes.MonthlyInclusiveMB, 0, @RoundStreamVolume)
+
+                  * dbo.SchemeDataTariffs.CostPerMB), 2)
+
+                   END,
+
+             @RoundDuration = dbo.fnSTPImportRoundIncrements(DataCDR.Duration, 
+
+                  SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy),
+
+             @OurCost = COALESCE(@OurCost, 0) + (ROUND(@RoundDuration * dbo.SchemeDataTariffs.CostPerMinute, 2)),
+
+             
+
+             --- repeat again for SP costs
+
+             
+
+             
+
+            @SPRoundStreamVolume = dbo.fnSTPImportRoundIncrements(DataCDR.UpstreamVolume, 
+
+                  SchemeDataTariffs.SPMinVolume, SchemeDataTariffs.SPIncrements, SchemeDataTariffs.SPDivideBy) + 
+
+                  dbo.fnSTPImportRoundIncrements(DataCDR.DownstreamVolume,  
+
+                  SchemeDataTariffs.SPMinVolume, SchemeDataTariffs.SPIncrements, SchemeDataTariffs.SPDivideBy),
+
+            @SPCalcCost =
+
+                  CASE WHEN ClientSchemes.SPMonthlyInclusiveMB = 0 THEN
+
+                  ROUND(CONVERT(money,@SPRoundStreamVolume
+
+                  * SchemeDataTariffs.SPCostPerMB), 2)
+
+                  ELSE
+
+             ROUND(CONVERT(money, dbo.fnSTPImportCapValue(
+
+                  
+
+                  -- convert to MB
+
+                              --dbo.fnSTPImportRoundIncrements(
+
+                  COALESCE(
+
+                              
+
+                  CASE WHEN ClientSchemes.InclusiveShared = 1 THEN
+
+                                    ISNULL( --- BEGIN Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator
+
+                        (SELECT SUM(SPRoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                        DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                        DataCDR2.CallDateTime < DataCDR.CallDateTime
+
+                        AND DataCDR2.Initiator IN
+
+                        (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                        WHERE vwSTPImportSharedSchemes.FromInitiator = DataCDR.Initiator
+
+                        AND vwSTPImportSharedSchemes.DateStart <= DataCDR.CallDate
+
+                        AND vwSTPImportSharedSchemes.DateFinish >= DataCDR.CallDate))  
+
+                                    , 0 ) --- END Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator                  
+
+                  ELSE
+
+                                    ISNULL( --- BEGIN Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator
+
+                        (SELECT SUM(SPRoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                        DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                        DataCDR2.CallDateTime < DataCDR.CallDateTime
+
+                        AND DataCDR2.Initiator = DataCDR.Initiator)  
+
+                                    , 0 ) --- END Added this line by POM 2009/01/23 to solve whenever there is JUST one record of CDR for an Initiator                     
+
+                  END + @SPRoundStreamVolume, 0)                              
+
+                  --, SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy)
+
+                  -- end convert
+
+ 
+
+                  - ClientSchemes.MonthlyInclusiveMB, 0, @RoundStreamVolume)
+
+                  * dbo.SchemeDataTariffs.CostPerMB), 2)
+
+                   END,
+
+             @SPRoundDuration = dbo.fnSTPImportRoundIncrements(DataCDR.Duration, 
+
+                  SchemeDataTariffs.SPMinVolume, SchemeDataTariffs.SPIncrements, SchemeDataTariffs.SPDivideBy),
+
+             @SPCalcCost = COALESCE(@SPCalcCost, 0) + (ROUND(COALESCE(@SPRoundDuration * dbo.SchemeDataTariffs.SPCostPerMinute, 0), 2)),
+
+             
+
+             -- update DB with values           
+
+             
+
+             OurCost = @OurCost, RoundDuration = @RoundDuration, RoundStreamVolume = @RoundStreamVolume,
+
+             Rate = SchemeDataTariffs.CostPerMB + SchemeDataTariffs.CostPerMinute,
+
+             SPCalcCost = @SPCalcCost, SPRoundDuration = @SPRoundDuration, SPRoundStreamVolume = @RoundStreamVolume,
+
+             SPCalcRate = COALESCE(SchemeDataTariffs.SPCostPerMB, 0) + COALESCE(SchemeDataTariffs.SPCostPerMinute, 0)
+
+             FROM DataCDR
+
+            INNER JOIN CDR 
+
+                  ON DataCDR.CDRID = CDR.ID
+
+            INNER JOIN 
+
+                  SubscriberEquipmentPropValues ON CDR.Initiator = SubscriberEquipmentPropValues.PropValue
+
+            INNER JOIN SubscriberEquipment ON 
+
+                  SubscriberEquipmentPropValues.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                  AND SubscriberEquipment.IsPrepaid = 0
+
+            INNER JOIN Subscribers 
+
+                  ON SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+            INNER JOIN EquipmentSchemes 
+
+                  ON SubscriberEquipment.SubscriberEquipmentID = EquipmentSchemes.SubscriberEquipmentID
+
+                  AND DataCDR.CallDate >= EquipmentSchemes.DateStart
+
+                  AND DataCDR.CallDate <= EquipmentSchemes.DateFinish
+
+                  AND dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                  AND dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+            INNER JOIN SchemeDataTariffs
+
+                  ON EquipmentSchemes.ClientSchemeID = SchemeDataTariffs.ClientSchemeID
+
+                  AND DataCDR.CallTime >= SchemeDataTariffs.StartTime
+
+                  AND DataCDR.CallTime <= SchemeDataTariffs.EndTime
+
+                  AND DataCDR.UpstreamRate >= SchemeDataTariffs.UpstreamRateStart
+
+                  AND DataCDR.UpstreamRate <= SchemeDataTariffs.UpstreamRateEnd
+
+                  AND DataCDR.DownstreamRate >= SchemeDataTariffs.DownstreamRateStart
+
+                  AND DataCDR.DownstreamRate <= SchemeDataTariffs.DownstreamRateEnd
+
+                  AND DataCDR.ChargeByVolume = SchemeDataTariffs.ChargeByVolume
+
+                  AND SchemeDataTariffs.AmountAbove = 0
+
+            INNER JOIN ClientSchemes 
+
+                  ON EquipmentSchemes.ClientSchemeID = ClientSchemes.ClientSchemeID
+
+            INNER JOIN ClientAddresses ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+            WHERE CDR.ProcessingID = @InvoiceJobID
+
+ 
+
+            -- 2.6. update the CDR totals with the background and streaming totals (non-FBB)
+
+ 
+
+            --PRINT CONVERT(varchar, DATEDIFF(s, @StartDate, GETDATE())) + ' - Update CDR totals with data CDR totals'
+
+            
+
+            UPDATE CDR SET 
+
+                  @CDRCost = (SELECT SUM(OurCost) FROM DataCDR WHERE CDRID = CDR.ID),
+
+ 
+
+--                @TotalCDRCost = 
+
+--                      CASE
+
+--                        WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+--                        AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance) 
+
+--                        THEN
+
+--                            @CDRCost + COALESCE((SELECT SUM(CDRCost) FROM CDR AS CDR3 WHERE
+
+--                                              CDR3.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+--                                              CDR3.CallDateTime < CDR.CallDateTime
+
+--                                              AND CDR3.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+--                                              AND CDR3.Initiator IN (SELECT PropValue COLLATE Latin1_General_CI_AS FROM dbo.fnSTPGetGroupInitiators(SubscriberEquipment.SubscriberEquipmentID, CDR.Initiator))), 0)
+
+--                        ELSE
+
+--                            0
+
+--                        END,
+
+--                  
+
+--                  -- If $ allowance specified in the billing scheme,
+
+--                  -- subtract total cost of all calls from monthly allowance
+
+--                  -- then limit value between 0 and cost of this call (@CDRCost)
+
+--                  
+
+--                  @OurCost = 
+
+--                      CASE
+
+--                        WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+--                        AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+--                        THEN
+
+--                            dbo.fnSTPImportCapValue(@TotalCDRCost - ClientSchemes.MonthlyCostAllowance, 0, @CDRCost)
+
+--                        ELSE
+
+--                            @CDRCost
+
+--                        END,
+
+ 
+
+                  CDRCost = @CDRCost,
+
+                  RoundDuration = (SELECT SUM(RoundDuration + RoundStreamVolume) FROM DataCDR WHERE CDRID = CDR.ID),
+
+                  Rate = (SELECT TOP 1 Rate FROM DataCDR WHERE CDRID = CDR.ID),
+
+                  SPCalcCost = (SELECT SUM(SPCalcCost) FROM DataCDR WHERE CDRID = CDR.ID),
+
+                  SPRoundDuration = (SELECT SUM(SPRoundDuration + SPRoundStreamVolume) FROM DataCDR WHERE CDRID = CDR.ID),
+
+                  SPCalcRate = (SELECT TOP 1 SPCalcRate FROM DataCDR WHERE CDRID = CDR.ID)
+
+            -- TotalCDRCost = @TotalCDRCost, MonthlyCostAllowance = ClientSchemes.MonthlyCostAllowance
+
+            FROM CDR
+
+            INNER JOIN ClientSchemes ON dbo.ClientSchemes.ClientSchemeID = CDR.ClientSchemeID
+
+            INNER JOIN SubscriberEquipmentPropValues ON CDR.Initiator=SubscriberEquipmentPropValues.PropValue
+
+            INNER JOIN SubscriberEquipment ON SubscriberEquipmentPropValues.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                  AND SubscriberEquipment.IsPrepaid = 0
+
+--          INNER JOIN Subscribers ON SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+--          INNER JOIN ClientAddresses ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+--          INNER JOIN EquipmentSchemes 
+
+--                ON SubscriberEquipment.SubscriberEquipmentID = EquipmentSchemes.SubscriberEquipmentID
+
+--                AND CDR.CallDate >= EquipmentSchemes.DateStart
+
+--                AND CDR.CallDate <= EquipmentSchemes.DateFinish
+
+--                AND dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+--                AND dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+--          INNER JOIN ClientSchemes 
+
+--                ON EquipmentSchemes.ClientSchemeID = ClientSchemes.ClientSchemeID
+
+            WHERE CDR.ProcessingID = @InvoiceJobID
+
+            AND CDR.CalledToCallTypeID IN
+
+                  (SELECT CallTypeID FROM CallTypes WHERE
+
+                  CallTypes.IsBGANStreamingIP = 1 OR CallTypes.IsBGANStandardIP = 1)
+
+ 
+
+            -- do we have tiered pricing to deal with?
+
+ 
+
+ 
+
+            UPDATE CDR SET 
+
+                  @TotalCDRCost = 
+
+                        CASE
+
+                          WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+                          AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance) 
+
+                          THEN
+
+                              CDRCost + COALESCE((SELECT SUM(CDRCost) FROM CDR AS CDR3 WHERE
+
+                                                CDR3.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                CDR3.CallDateTime < CDR.CallDateTime
+
+                                                AND CDR3.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+                                                AND CDR3.Initiator IN (SELECT PropValue COLLATE Latin1_General_CI_AS FROM dbo.fnSTPGetGroupInitiators(SubscriberEquipment.SubscriberEquipmentID, CDR.Initiator))), 0)
+
+                          ELSE
+
+                              0
+
+                          END,
+
+                    
+
+                    -- If $ allowance specified in the billing scheme,
+
+                    -- subtract total cost of all calls from monthly allowance
+
+                    -- then limit value between 0 and cost of this call (@CDRCost)
+
+                    
+
+                    @OurCost = 
+
+                        CASE 
+
+                          WHEN dbo.CDR.Initiator LIKE '88216[25]%' THEN
+
+                                       Round(dbo.CDR.Cost * (Select top 1 Rate From schemetariffs WHERE ClientSchemeID = dbo.ClientSchemes.ClientSchemeID), 2)
+
+                          WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+                          AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+                          THEN
+
+                              dbo.fnSTPImportCapValue(@TotalCDRCost - ClientSchemes.MonthlyCostAllowance, 0, CDRCost)
+
+                          ELSE
+
+                               CDRCost
+
+                          END,
+
+                  OurCost = @OurCost --, TotalCDRCost = @TotalCDRCost, 
+
+                  -- MonthlyCostAllowance = ClientSchemes.MonthlyCostAllowance
+
+            FROM CDR
+
+            INNER JOIN ClientSchemes ON dbo.ClientSchemes.ClientSchemeID = CDR.ClientSchemeID
+
+            INNER JOIN SubscriberEquipmentPropValues ON CDR.Initiator=SubscriberEquipmentPropValues.PropValue
+
+            INNER JOIN SubscriberEquipment ON SubscriberEquipmentPropValues.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                  AND SubscriberEquipment.IsPrepaid = 0
+
+--          INNER JOIN Subscribers ON SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+--          INNER JOIN ClientAddresses ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+--          INNER JOIN EquipmentSchemes 
+
+--                ON SubscriberEquipment.SubscriberEquipmentID = EquipmentSchemes.SubscriberEquipmentID
+
+--                AND CDR.CallDate >= EquipmentSchemes.DateStart
+
+--                AND CDR.CallDate <= EquipmentSchemes.DateFinish
+
+--                AND dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+--                AND dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+--          INNER JOIN ClientSchemes 
+
+--                ON EquipmentSchemes.ClientSchemeID = ClientSchemes.ClientSchemeID
+
+            WHERE CDR.ProcessingID = @InvoiceJobID
+
+ 
+
+                  
+
+            EXECUTE @RC = [dbo].[spSTPImportCalculateTiers] NULL, @InvoiceJobID
+
+        -- 2.9. set InvoiceJobID for CDR's
+
+                  
+
+            UPDATE CDR SET InvoiceJobID = @InvoiceJobID
+
+            FROM CDR
+
+            INNER JOIN SubscriberEquipmentPropValues 
+
+                  ON CDR.Initiator = SubscriberEquipmentPropValues.PropValue
+
+            INNER JOIN SubscriberEquipment
+
+                  ON SubscriberEquipmentPropValues.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                  AND SubscriberEquipment.StartDate <=  CDR.CallDate
+
+                  AND SubscriberEquipment.EndDate >= CDR.CallDate 
+
+                  AND SubscriberEquipment.IsPrepaid = 0
+
+            INNER JOIN Subscribers 
+
+                  ON SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+            INNER JOIN ClientAddresses 
+
+                  ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+            WHERE ClientAddresses.ClientID = @ClientID
+
+            AND Subscribers.BillingCycleID = COALESCE(@BillingCycleID, Subscribers.BillingCycleID)
+
+            AND CDR.ImportJobID IS NOT NULL
+
+            AND CDR.InvoiceJobID IS NULL AND CDR.OurCost IS NOT NULL
+
+            AND CDR.CallDate <= @UpToDate
+
+ 
+
+      END
+
+ 
+
+      --PRINT CONVERT(varchar, DATEDIFF(s, @StartDate, GETDATE())) + ' - Job done'  
+
+ 
+
+      -- 3. ImportJobID specified....
+
+ 
+
+      IF(@ImportJobID>0)
+
+      BEGIN
+
+ 
+
+        -- 3.1. Should we calculate?
+
+      
+
+        SELECT @CalculateOnImport = CalculateOnImport FROM AirtimeProviders 
+
+        WHERE AirtimeProviderID = (SELECT TOP 1 AirtimeProviderID FROM CDR 
+
+                                                                                           WHERE ImportJobID = @ImportJobID)
+
+            IF(@CalculateOnImport<>0)
+
+            BEGIN
+
+ 
+
+            -- 3.1.1. Get all FBB ClientSchemesID in this import
+
+ 
+
+              -- 3.1.2. Round all non-FBB CDR's
+
+ 
+
+              UPDATE CDR
+
+               SET CDR.ProcessingID = @ImportJobID,
+
+                   CDR.ClientSchemeID = ClientSchemes.ClientSchemeID                
+
+               FROM CDR INNER JOIN
+
+                         dbo.OceanRegions ON 
+
+                         dbo.CDR.OceanRegionID = dbo.OceanRegions.OceanRegionID
+
+                              INNER JOIN 
+
+                         dbo.SubscriberEquipmentPropValues ON 
+
+                         dbo.CDR.Initiator = dbo.SubscriberEquipmentPropValues.PropValue
+
+                              INNER JOIN 
+
+                         dbo.SubscriberEquipment ON 
+
+                         dbo.SubscriberEquipmentPropValues.SubscriberEquipmentID
+
+                              = dbo.SubscriberEquipment.SubscriberEquipmentID
+
+                              INNER JOIN
+
+                         dbo.EquipmentSchemes ON 
+
+                         dbo.SubscriberEquipment.SubscriberEquipmentID = dbo.EquipmentSchemes.SubscriberEquipmentID
+
+                        AND dbo.EquipmentSchemes.DateStart <= CDR.CallDate
+
+                        AND dbo.EquipmentSchemes.DateFinish >= CDR.CallDate
+
+                              AND 
+
+                         dbo.CDR.CallDate >= dbo.EquipmentSchemes.DateStart
+
+                              AND 
+
+                         dbo.CDR.CallDate <= dbo.EquipmentSchemes.DateFinish
+
+                              AND 
+
+                         dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                              AND 
+
+                         dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+                              INNER JOIN
+
+                         dbo.ClientSchemes ON 
+
+                         dbo.EquipmentSchemes.ClientSchemeID = dbo.ClientSchemes.ClientSchemeID
+
+                  AND dbo.SubscriberEquipment.EquipmentID = ClientSchemes.EquipmentID
+
+                        INNER JOIN
+
+                         dbo.SchemeTariffs ON 
+
+                         dbo.EquipmentSchemes.ClientSchemeID = dbo.SchemeTariffs.ClientSchemeID
+
+                              AND 
+
+                         dbo.SchemeTariffs.AirtimeProviderID = dbo.CDR.AirtimeProviderID
+
+                              AND 
+
+                         dbo.SchemeTariffs.InitiatorCallTypeID = dbo.CDR.InitiatorCallTypeID
+
+                              AND 
+
+                         dbo.SchemeTariffs.CalledToCallTypeID = dbo.CDR.CalledToCallTypeID
+
+                              AND 
+
+                         dbo.CDR.CallTime >= dbo.SchemeTariffs.StartTime
+
+                              AND 
+
+                         dbo.CDR.CallTime <= dbo.SchemeTariffs.EndTime
+
+                              AND 
+
+                         dbo.SchemeTariffs.IsAORE = dbo.OceanRegions.IsAORE
+
+                              AND
+
+                         dbo.SchemeTariffs.IsAORW = dbo.OceanRegions.IsAORW
+
+                              AND
+
+                         dbo.SchemeTariffs.IsIOR = dbo.OceanRegions.IsIOR
+
+                              AND
+
+                         dbo.SchemeTariffs.IsPOR = dbo.OceanRegions.IsPOR
+
+                            AND
+
+                         dbo.SchemeTariffs.AmountAbove = 0
+
+                  WHERE CDR.ImportJobID = @ImportJobID
+
+--          AND CDR.CalledToCallTypeID NOT IN
+
+--                      (SELECT CallTypeID FROM CallTypes 
+
+--                      WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1)
+
+        
+
+ 
+
+                  -- 3.1.3. Now calculate totals for all non-FBB rounded CDR's...
+
+ 
+
+                  UPDATE CDR
+
+                  --SET @RoundDuration = dbo.fnSTPImportRoundIncrements(dbo.CDR.Duration, 
+
+                              --    dbo.SchemeTariffs.MinVolume, dbo.SchemeTariffs.Increments, dbo.SchemeTariffs.DivideBy),
+
+                        SET @RoundDuration = dbo.fnSTPImportRoundIncrements(dbo.CDR.Duration, 
+
+                                                  dbo.SchemeTariffs.MinVolume, dbo.SchemeTariffs.Increments, dbo.SchemeTariffs.DivideBy),
+
+                              @SPRoundDuration = dbo.fnSTPImportRoundIncrements(dbo.CDR.Duration, 
+
+                                                  dbo.SchemeTariffs.SPMinVolume, dbo.SchemeTariffs.SPIncrements, dbo.SchemeTariffs.SPDivideBy),
+
+                              @CalcDuration = 
+
+                                    CASE WHEN ClientSchemes.MonthlyInclusiveMins = 0
+
+                                    --OR CDR.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSBDChecking=1) THEN
+
+            OR (CDR.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSBDChecking=1)) OR (CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS')) OR (CDR.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) THEN
+
+                                                @RoundDuration
+
+                                          ELSE
+
+                                          dbo.fnSTPImportCapValue(
+
+                                           CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                                      (SELECT SUM(COALESCE(RoundDuration, 0)) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator = CDR.Initiator 
+
+                                                      AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                      (SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+                                                ELSE
+
+                                                      (SELECT SUM(COALESCE(RoundDuration, 0)) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator IN
+
+                                                      (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                      WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                                END + @RoundDuration - ClientSchemes.MonthlyInclusiveMins, 
+
+                                                0, @RoundDuration)
+
+                                          END,
+
+                 --Add MonthlyInclusiveSMS - Woot Oct 15, 2007
+
+       @CalcDuration =
+
+         CASE WHEN ClientSchemes.MonthlyInclusiveSMS = 0
+
+                                                OR ((CDR.InitiatorCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) AND (CDR.CalledToCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))) THEN
+
+                                                            @CalcDuration
+
+          ELSE
+
+                                          dbo.fnSTPImportCapValue(
+
+                                           CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                                      (SELECT SUM(COALESCE(RoundDuration, 0)) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator = CDR.Initiator 
+
+                                                      --AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                      --(SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+         AND ((CDR2.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) OR (CDR2.CalledToCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))))
+
+                                                ELSE
+
+                                                      (SELECT SUM(COALESCE(RoundDuration, 0)) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator IN
+
+                                                      (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                      WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                                END + @RoundDuration - ClientSchemes.MonthlyInclusiveSMS, 
+
+                                                0, @RoundDuration)
+
+                                          END,  
+
+            --                @Cost = ROUND(CONVERT(money, @CalcDuration * dbo.ProviderTariffs.Rate), 2),
+
+            -----Cost missing when importing--Woot 14 Feb 2007
+
+            /*                      @Cost = 
+
+                              CASE 
+
+                                          WHEN dbo.ProviderTariffs.Rate Is NOT NULL THEN
+
+                                                ROUND(CONVERT(money, @CalcDuration * dbo.ProviderTariffs.Rate), 2)
+
+                                                            ELSE
+
+                                                                        dbo.CDR.Cost
+
+                                                            END,*/
+
+            ------End--    
+
+                              @CDRCost = 
+
+                                    CASE 
+
+                                          WHEN dbo.SchemeTariffs.Rate IS NOT NULL THEN
+
+                                                ROUND(CONVERT(money, @CalcDuration * dbo.SchemeTariffs.Rate), 2)
+
+            /*                            WHEN dbo.ProviderTariffs.Rate IS NOT NULL 
+
+                                          AND dbo.ClientSchemes.SupplierPercentageIncrease IS NOT NULL THEN
+
+                                                ROUND(CONVERT(money, @Cost * (1 + (ClientSchemes.SupplierPercentageIncrease / 100))), 2) */
+
+                                    END,
+
+                                    
+
+                              --- repeat again for SP costs
+
+                          
+
+                         @SPRoundDuration = dbo.fnSTPImportRoundIncrements(dbo.CDR.Duration, 
+
+                                    dbo.SchemeTariffs.SPMinVolume, dbo.SchemeTariffs.SPIncrements, dbo.SchemeTariffs.SPDivideBy),
+
+                              @SPCalcDuration = 
+
+                                    CASE WHEN ClientSchemes.SPMonthlyInclusiveMins = 0 THEN
+
+                                                @SPRoundDuration
+
+                                          ELSE
+
+                                          dbo.fnSTPImportCapValue(
+
+                                           CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                                      (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator = CDR.Initiator
+
+                                                      AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                      (SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+                                                ELSE
+
+                                                      (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator IN
+
+                                                      (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                      WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                                END + @SPRoundDuration - ClientSchemes.SPMonthlyInclusiveMins, 
+
+                                                0, @SPRoundDuration)
+
+                                          END, 
+
+     --SMS
+
+      @SPCalcDuration = 
+
+        CASE WHEN ClientSchemes.SPMonthlyInclusiveSMS = 0 OR ((CDR.InitiatorCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) AND (CDR.CalledToCallTypeID NOT IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))) THEN 
+
+         @SPCalcDuration
+
+        ELSE
+
+                                          dbo.fnSTPImportCapValue(
+
+                                           CASE WHEN ClientSchemes.InclusiveShared = 0 THEN
+
+                                                      (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator = CDR.Initiator
+
+                                                      --AND CDR2.CalledToCallTypeID NOT IN 
+
+                                                      --(SELECT CallTypeID FROM CallTypes WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1))
+
+         AND ((CDR2.InitiatorCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE IsIridiumSMS=1)) OR (CDR2.CalledToCallTypeID IN (SELECT CallTypeID FROM CallTypes WHERE ServiceCodeMask LIKE 'BSMS'))))
+
+                                                ELSE
+
+                                                      (SELECT COALESCE(SUM(SPRoundDuration), 0) FROM CDR AS CDR2 WHERE
+
+                                                      CDR2.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                                                      CDR2.CallDateTime < CDR.CallDateTime
+
+                                                      AND CDR2.Initiator IN
+
+                                                      (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                                                      WHERE dbo.vwSTPImportSharedSchemes.FromInitiator = dbo.CDR.Initiator
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateStart <= dbo.CDR.CallDate
+
+                                                      AND dbo.vwSTPImportSharedSchemes.DateFinish >= dbo.CDR.CallDate))
+
+                                                END + @SPRoundDuration - ClientSchemes.SPMonthlyInclusiveSMS, 
+
+                                                0, @SPRoundDuration)
+
+                                          END, 
+
+     --End
+
+                              @SPCalcCost = 
+
+                                    CASE 
+
+                                          WHEN dbo.SchemeTariffs.SPRate IS NOT NULL THEN
+
+                                                ROUND(CONVERT(money, @SPCalcDuration * dbo.SchemeTariffs.SPRate), 2)
+
+                                    END,
+
+                              @SPCalcCost = CASE WHEN @OurCost < COALESCE(SchemeTariffs.SPMinCharge, 0) THEN
+
+                                    COALESCE(SchemeTariffs.SPMinCharge, 0)
+
+                              ELSE
+
+                                    @SPCalcCost
+
+                              END,                
+
+                          
+
+                              -- write to db row
+
+                          
+
+                              RoundDuration = @RoundDuration, -- Cost = @Cost, 
+
+                              CDRCost = @CDRCost, Rate = dbo.SchemeTariffs.Rate,
+
+                              SPRoundDuration = @SPRoundDuration, 
+
+     SPCalcCost = @SPCalcCost, SPCalcRate = dbo.SchemeTariffs.SPRate,
+
+                    --Bug #209, Changed from @OurCost to @CDRCost. 
+
+                              --LastCost = @OurCost
+
+                     LastCost = @CDRCost  
+
+                    --End Bug #209
+
+                                    
+
+                  FROM CDR INNER JOIN
+
+                         dbo.OceanRegions ON 
+
+                         dbo.CDR.OceanRegionID = dbo.OceanRegions.OceanRegionID
+
+                              INNER JOIN 
+
+                         dbo.SubscriberEquipmentPropValues ON 
+
+                         dbo.CDR.Initiator = dbo.SubscriberEquipmentPropValues.PropValue
+
+                              INNER JOIN 
+
+                         dbo.SubscriberEquipment ON 
+
+                         dbo.SubscriberEquipmentPropValues.SubscriberEquipmentID
+
+                              = dbo.SubscriberEquipment.SubscriberEquipmentID
+
+                              INNER JOIN
+
+                         dbo.EquipmentSchemes ON 
+
+                         dbo.SubscriberEquipment.SubscriberEquipmentID = dbo.EquipmentSchemes.SubscriberEquipmentID
+
+                        AND dbo.EquipmentSchemes.DateStart <= CDR.CallDate
+
+                        AND dbo.EquipmentSchemes.DateFinish >= CDR.CallDate
+
+                              AND 
+
+                         dbo.CDR.CallDate >= dbo.EquipmentSchemes.DateStart
+
+                              AND 
+
+                         dbo.CDR.CallDate <= dbo.EquipmentSchemes.DateFinish
+
+                              AND 
+
+                         dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                              AND 
+
+                         dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+                              INNER JOIN
+
+                         dbo.ClientSchemes ON 
+
+                         dbo.EquipmentSchemes.ClientSchemeID = dbo.ClientSchemes.ClientSchemeID
+
+                  AND dbo.SubscriberEquipment.EquipmentID = ClientSchemes.EquipmentID
+
+                        INNER JOIN
+
+                         dbo.SchemeTariffs ON 
+
+                         dbo.EquipmentSchemes.ClientSchemeID = dbo.SchemeTariffs.ClientSchemeID
+
+                              AND 
+
+                         dbo.SchemeTariffs.AirtimeProviderID = dbo.CDR.AirtimeProviderID
+
+                              AND 
+
+                         dbo.SchemeTariffs.InitiatorCallTypeID = dbo.CDR.InitiatorCallTypeID
+
+                              AND 
+
+                         dbo.SchemeTariffs.CalledToCallTypeID = dbo.CDR.CalledToCallTypeID
+
+                              AND 
+
+                         dbo.CDR.CallTime >= dbo.SchemeTariffs.StartTime
+
+                              AND 
+
+                         dbo.CDR.CallTime <= dbo.SchemeTariffs.EndTime
+
+                              AND 
+
+                         dbo.SchemeTariffs.IsAORE = dbo.OceanRegions.IsAORE
+
+                              AND
+
+                         dbo.SchemeTariffs.IsAORW = dbo.OceanRegions.IsAORW
+
+                              AND
+
+                         dbo.SchemeTariffs.IsIOR = dbo.OceanRegions.IsIOR
+
+                              AND
+
+                         dbo.SchemeTariffs.IsPOR = dbo.OceanRegions.IsPOR
+
+                            AND
+
+                         dbo.SchemeTariffs.AmountAbove = 0
+
+                  WHERE CDR.ImportJobID = @ImportJobID
+
+            AND CDR.CalledToCallTypeID NOT IN
+
+                        (SELECT CallTypeID FROM CallTypes 
+
+                        WHERE IsBGANStandardIP=1 OR IsBGANStreamingIP=1)
+
+            
+
+ 
+
+                  -- 3.1.4. Calculate background and streaming data totals
+
+ 
+
+                  UPDATE DataCDR
+
+                  SET 
+
+                  @RoundStreamVolume = dbo.fnSTPImportRoundIncrements(DataCDR.UpstreamVolume, 
+
+                        SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy) + 
+
+                        dbo.fnSTPImportRoundIncrements(DataCDR.DownstreamVolume,  
+
+                        SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy),
+
+                  @OurCost =
+
+                        CASE WHEN ClientSchemes.MonthlyInclusiveMB = 0 THEN
+
+                        ROUND(CONVERT(money,@RoundStreamVolume
+
+                        * SchemeDataTariffs.CostPerMB), 2)
+
+                        ELSE
+
+                   ROUND(CONVERT(money, dbo.fnSTPImportCapValue(
+
+                        
+
+                        -- convert to MB
+
+                                    --dbo.fnSTPImportRoundIncrements(
+
+                        COALESCE(
+
+                        CASE WHEN ClientSchemes.InclusiveShared = 1 THEN
+
+                              (SELECT SUM(RoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                              DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                              DataCDR2.CallDateTime < DataCDR.CallDateTime
+
+                              AND DataCDR2.Initiator IN
+
+                              (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                              WHERE vwSTPImportSharedSchemes.FromInitiator = DataCDR.Initiator
+
+                              AND vwSTPImportSharedSchemes.DateStart <= DataCDR.CallDate
+
+                              AND vwSTPImportSharedSchemes.DateFinish >= DataCDR.CallDate))     
+
+                        ELSE
+
+                              (SELECT SUM(RoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                              DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                              DataCDR2.CallDateTime < DataCDR.CallDateTime
+
+                              AND DataCDR2.Initiator = DataCDR.Initiator)     
+
+                        END + @RoundStreamVolume, 0)
+
+                        --, SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy)
+
+                        -- end convert
+
+ 
+
+                        - ClientSchemes.MonthlyInclusiveMB, 0, @RoundStreamVolume)
+
+                        * dbo.SchemeDataTariffs.CostPerMB), 2)
+
+                         END,
+
+                   @RoundDuration = dbo.fnSTPImportRoundIncrements(DataCDR.Duration, 
+
+                        SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy),
+
+                   @OurCost = COALESCE(@OurCost, 0) + (ROUND(@RoundDuration * dbo.SchemeDataTariffs.CostPerMinute, 2)),
+
+                   
+
+                   --- repeate again for SP costs
+
+                   
+
+                   
+
+                  @SPRoundStreamVolume = dbo.fnSTPImportRoundIncrements(DataCDR.UpstreamVolume, 
+
+                        SchemeDataTariffs.SPMinVolume, SchemeDataTariffs.SPIncrements, SchemeDataTariffs.SPDivideBy) + 
+
+                        dbo.fnSTPImportRoundIncrements(DataCDR.DownstreamVolume,  
+
+                        SchemeDataTariffs.SPMinVolume, SchemeDataTariffs.SPIncrements, SchemeDataTariffs.SPDivideBy),
+
+                  @SPCalcCost =
+
+                        CASE WHEN ClientSchemes.SPMonthlyInclusiveMB = 0 THEN
+
+                        ROUND(CONVERT(money,@SPRoundStreamVolume
+
+                        * SchemeDataTariffs.SPCostPerMB), 2)
+
+                        ELSE
+
+                   ROUND(CONVERT(money, dbo.fnSTPImportCapValue(
+
+                        
+
+                        -- convert to MB
+
+                                    --dbo.fnSTPImportRoundIncrements(
+
+                        COALESCE(
+
+                        CASE WHEN ClientSchemes.InclusiveShared = 1 THEN
+
+                              (SELECT SUM(SPRoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                              DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.SPInclusiveMonthBlocks) AND 
+
+                              DataCDR2.CallDateTime <= DataCDR.CallDateTime
+
+                              AND DataCDR2.Initiator IN
+
+                              (SELECT ToInitiator FROM vwSTPImportSharedSchemes 
+
+                              WHERE vwSTPImportSharedSchemes.FromInitiator = DataCDR.Initiator
+
+                              AND vwSTPImportSharedSchemes.DateStart <= DataCDR.CallDate
+
+                              AND vwSTPImportSharedSchemes.DateFinish >= DataCDR.CallDate))     
+
+                        ELSE
+
+                              (SELECT SUM(SPRoundStreamVolume) FROM DataCDR AS DataCDR2 WHERE
+
+                              DataCDR2.CallDate >= dbo.fnSTPImportGetStartDate(DataCDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                              DataCDR2.CallDateTime < DataCDR.CallDateTime
+
+                              AND DataCDR2.Initiator = DataCDR.Initiator)     
+
+                        END + @SPRoundStreamVolume, 0)
+
+                        --, SchemeDataTariffs.MinVolume, SchemeDataTariffs.Increments, SchemeDataTariffs.DivideBy)
+
+                        -- end convert
+
+ 
+
+                        - ClientSchemes.MonthlyInclusiveMB, 0, @RoundStreamVolume)
+
+                        * dbo.SchemeDataTariffs.CostPerMB), 2)
+
+                         END,
+
+                   @SPRoundDuration = dbo.fnSTPImportRoundIncrements(DataCDR.Duration, 
+
+                        SchemeDataTariffs.SPMinVolume, SchemeDataTariffs.SPIncrements, SchemeDataTariffs.SPDivideBy),
+
+                   @SPCalcCost = COALESCE(@SPCalcCost, 0) + (ROUND(@SPRoundDuration * dbo.SchemeDataTariffs.SPCostPerMinute, 2)),
+
+                   
+
+                   -- update DB with values           
+
+                   
+
+                   OurCost = @OurCost, RoundDuration = @RoundDuration, RoundStreamVolume = @RoundStreamVolume,
+
+                   Rate = SchemeDataTariffs.CostPerMB + SchemeDataTariffs.CostPerMinute,
+
+                   SPCalcCost = @SPCalcCost, SPRoundDuration = @SPRoundDuration, SPRoundStreamVolume = @RoundStreamVolume,
+
+                   SPCalcRate = SchemeDataTariffs.SPCostPerMB + SchemeDataTariffs.SPCostPerMinute
+
+                   FROM DataCDR
+
+                  INNER JOIN CDR 
+
+                        ON DataCDR.CDRID = CDR.ID
+
+                  INNER JOIN 
+
+                        SubscriberEquipmentPropValues ON CDR.Initiator = SubscriberEquipmentPropValues.PropValue
+
+                  INNER JOIN SubscriberEquipment ON 
+
+                        SubscriberEquipmentPropValues.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                  INNER JOIN Subscribers 
+
+                        ON SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+                  INNER JOIN EquipmentSchemes 
+
+                        ON SubscriberEquipment.SubscriberEquipmentID = EquipmentSchemes.SubscriberEquipmentID
+
+                        AND DataCDR.CallDate >= EquipmentSchemes.DateStart
+
+                        AND DataCDR.CallDate <= EquipmentSchemes.DateFinish
+
+                        AND dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                        AND dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+                  INNER JOIN SchemeDataTariffs
+
+                        ON EquipmentSchemes.ClientSchemeID = SchemeDataTariffs.ClientSchemeID
+
+                        AND DataCDR.CallTime >= SchemeDataTariffs.StartTime
+
+                        AND DataCDR.CallTime <= SchemeDataTariffs.EndTime
+
+                        AND DataCDR.UpstreamRate >= SchemeDataTariffs.UpstreamRateStart
+
+                        AND DataCDR.UpstreamRate <= SchemeDataTariffs.UpstreamRateEnd
+
+                        AND DataCDR.DownstreamRate >= SchemeDataTariffs.DownstreamRateStart
+
+                        AND DataCDR.DownstreamRate <= SchemeDataTariffs.DownstreamRateEnd
+
+                        AND DataCDR.ChargeByVolume = SchemeDataTariffs.ChargeByVolume
+
+                        AND dbo.SchemeDataTariffs.AmountAbove = 0
+
+                  INNER JOIN ClientSchemes 
+
+                        ON EquipmentSchemes.ClientSchemeID = ClientSchemes.ClientSchemeID
+
+                  WHERE CDR.ImportJobID = @ImportJobID
+
+                  AND DataCDR.Calculated = 0
+
+        
+
+                  
+
+                  -- 3.1.5. update the CDR totals with the background and streaming totals
+
+ 
+
+                  UPDATE CDR SET 
+
+                        @LastCost = (SELECT SUM(OurCost) FROM DataCDR WHERE CDRID = CDR.ID AND Calculated = 0),
+
+                        CDRCost = COALESCE(CDRCost, 0) + @LastCost,
+
+                        @RoundDuration = (SELECT COALESCE(SUM(DataCDR.RoundStreamVolume), 0) + COALESCE(SUM(DataCDR.RoundDuration), 0) FROM DataCDR WHERE CDRID = CDR.ID AND Calculated = 0),
+
+                        Rate = (SELECT TOP 1 Rate FROM DataCDR WHERE CDRID = CDR.ID AND Calculated = 0),
+
+                        SPCalcCost = COALESCE(SPCalcCost, 0) + (SELECT SUM(SPCalcCost) FROM DataCDR WHERE CDRID = CDR.ID AND Calculated = 0),
+
+                        SPRoundDuration = COALESCE(SPRoundDuration, 0) + (SELECT SUM(SPRoundDuration + SPRoundStreamVolume) FROM DataCDR WHERE CDRID = CDR.ID AND Calculated = 0),
+
+                        SPCalcRate = (SELECT TOP 1 SPCalcRate FROM DataCDR WHERE CDRID = CDR.ID AND Calculated = 0),
+
+                        LastCost = @LastCost, RoundDuration = COALESCE(RoundDuration, 0) + @RoundDuration
+
+            FROM CDR
+
+            INNER JOIN SubscriberEquipmentPropValues ON CDR.Initiator=SubscriberEquipmentPropValues.PropValue
+
+            INNER JOIN SubscriberEquipment ON SubscriberEquipmentPropValues.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                  -- AND SubscriberEquipment.IsPrepaid = 0
+
+            -- INNER JOIN Subscribers ON SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+                        INNER JOIN
+
+                   dbo.EquipmentSchemes ON 
+
+                   dbo.SubscriberEquipment.SubscriberEquipmentID = dbo.EquipmentSchemes.SubscriberEquipmentID
+
+                  AND dbo.EquipmentSchemes.DateStart <= CDR.CallDate
+
+                  AND dbo.EquipmentSchemes.DateFinish >= CDR.CallDate
+
+                        AND 
+
+                   dbo.CDR.CallDate >= dbo.EquipmentSchemes.DateStart
+
+                        AND 
+
+                   dbo.CDR.CallDate <= dbo.EquipmentSchemes.DateFinish
+
+                        AND 
+
+                   dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                        AND 
+
+                   dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+                        INNER JOIN
+
+                   dbo.ClientSchemes ON 
+
+                   dbo.EquipmentSchemes.ClientSchemeID = dbo.ClientSchemes.ClientSchemeID
+
+            AND dbo.SubscriberEquipment.EquipmentID = ClientSchemes.EquipmentID
+
+            -- INNER JOIN ClientAddresses ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+                  WHERE (CDR.ImportJobID = @ImportJobID)
+
+                  AND CalledToCallTypeID IN 
+
+                        (SELECT CallTypeID FROM CallTypes WHERE
+
+                        CallTypes.IsBGANStreamingIP = 1 OR CallTypes.IsBGANStandardIP = 1)
+
+ 
+
+--- HERE!!! ---
+
+ 
+
+ 
+
+            UPDATE CDR SET 
+
+                  @TotalCDRCost = 
+
+                        CASE
+
+                          WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+                          AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance) 
+
+                          THEN
+
+                              CDRCost + COALESCE((SELECT SUM(CDRCost) FROM CDR AS CDR3 WHERE
+
+                                                CDR3.CallDate >= dbo.fnSTPImportGetStartDate(CDR.CallDate, SubscriberEquipment.StartDate, ClientSchemes.InclusiveMonthBlocks) AND 
+
+                                                CDR3.CallDateTime < CDR.CallDateTime
+
+                                                AND CDR3.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+                                                AND CDR3.Initiator IN (SELECT PropValue COLLATE Latin1_General_CI_AS FROM dbo.fnSTPGetGroupInitiators(SubscriberEquipment.SubscriberEquipmentID, CDR.Initiator))), 0)
+
+                          ELSE
+
+                              0
+
+                          END,
+
+                    
+
+                    -- If $ allowance specified in the billing scheme,
+
+                    -- subtract total cost of all calls from monthly allowance
+
+                    -- then limit value between 0 and cost of this call (@CDRCost)
+
+                    
+
+                    @OurCost = 
+
+                        CASE 
+
+                          WHEN dbo.CDR.Initiator LIKE '88216[25]%' THEN
+
+                                       dbo.CDR.Cost
+
+                          WHEN dbo.ClientSchemes.MonthlyCostAllowance > 0 
+
+                          AND CDR.CalledToCallTypeID IN (SELECT CallTypeID FROM IncludeAllowance)
+
+                          THEN
+
+                              dbo.fnSTPImportCapValue(@TotalCDRCost - ClientSchemes.MonthlyCostAllowance, 0, CDRCost)
+
+                          ELSE
+
+                               CDRCost
+
+                          END,
+
+                  OurCost = @OurCost --, TotalCDRCost = @TotalCDRCost, 
+
+                  -- MonthlyCostAllowance = ClientSchemes.MonthlyCostAllowance
+
+            FROM CDR
+
+            INNER JOIN ClientSchemes ON dbo.ClientSchemes.ClientSchemeID = CDR.ClientSchemeID
+
+            INNER JOIN SubscriberEquipmentPropValues ON CDR.Initiator=SubscriberEquipmentPropValues.PropValue
+
+            INNER JOIN SubscriberEquipment ON SubscriberEquipmentPropValues.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+--                AND SubscriberEquipment.IsPrepaid = 0
+
+--          INNER JOIN Subscribers ON SubscriberEquipment.SubscriberID = Subscribers.SubscriberID
+
+--          INNER JOIN ClientAddresses ON Subscribers.ClientAddressID = ClientAddresses.ClientAddressID
+
+--          INNER JOIN EquipmentSchemes 
+
+--                ON SubscriberEquipment.SubscriberEquipmentID = EquipmentSchemes.SubscriberEquipmentID
+
+--                AND CDR.CallDate >= EquipmentSchemes.DateStart
+
+--                AND CDR.CallDate <= EquipmentSchemes.DateFinish
+
+--                AND dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+--                AND dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+--          INNER JOIN ClientSchemes 
+
+--                ON EquipmentSchemes.ClientSchemeID = ClientSchemes.ClientSchemeID
+
+                  WHERE (CDR.ImportJobID = @ImportJobID)
+
+ 
+
+                  EXECUTE @RC = [dbo].[spSTPImportCalculateTiers] @ImportJobID, NULL
+
+ 
+
+                  -- 3.1.7. set Calculated figure for DataCDR's
+
+                  
+
+                  UPDATE DataCDR SET Calculated = 1
+
+                  FROM DataCDR
+
+                  INNER JOIN CDR ON DataCDR.CDRID = CDR.ID
+
+                  WHERE CDR.ImportJobID = @ImportJobID
+
+                  AND DataCDR.Calculated = 0
+
+ 
+
+            -- 3.1.8. Create prepaid temp table.
+
+ 
+
+                  SELECT SubscriberEquipment.SubscriberEquipmentID, SUM(LastCost) AS TotalUnitCharge 
+
+                  INTO #tmpUpdatePrepaidCosts FROM SubscriberEquipment
+
+                  INNER JOIN SubscriberEquipmentPropValues ON 
+
+                        SubscriberEquipment.SubscriberEquipmentID = SubscriberEquipmentPropValues.SubscriberEquipmentID
+
+                  INNER JOIN CDR ON SubscriberEquipmentPropValues.PropValue = CDR.Initiator
+
+                        AND 
+
+                   dbo.CDR.CallDate >= dbo.SubscriberEquipment.StartDate
+
+                        AND 
+
+                   dbo.CDR.CallDate <= dbo.SubscriberEquipment.EndDate
+
+                  INNER JOIN Equipment ON SubscriberEquipment.EquipmentID = Equipment.EquipmentID
+
+                                                                               AND Equipment.UseInmarsatBSS = 1
+
+                  WHERE (SubscriberEquipment.IsPrepaid = 1
+
+                  OR SubscriberEquipment.PostPaidBalanceWarning IS NOT NULL)
+
+                  -- prepaid balances are only updated provided there's a balance to begin with
+
+                  -- i.e. the balance for that SIM card is not null.
+
+                  AND CDR.ImportJobID = @ImportJobID
+
+                  AND CDR.OurCost IS NOT NULL
+
+                  GROUP BY SubscriberEquipment.SubscriberEquipmentID
+
+ 
+
+                  --3.1.9 Update SubscriberEquipment table with prepaid totals
+
+ 
+
+                  UPDATE SubscriberEquipment
+
+                  SET SubscriberEquipment.PrepayUnitBalance = 
+
+                        (COALESCE(SubscriberEquipment.PrepayUnitBalance, 0) - COALESCE(#tmpUpdatePrepaidCosts.TotalUnitCharge, 0))
+
+                  FROM #tmpUpdatePrepaidCosts
+
+                  INNER JOIN SubscriberEquipment ON 
+
+                        #tmpUpdatePrepaidCosts.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                        AND SubscriberEquipment.IsPrepaid = 1
+
+ 
+
+                  -- 3.1.10 Update SubscirberEquipment table with postpaid totals.
+
+ 
+
+                  UPDATE SubscriberEquipment
+
+                  SET SubscriberEquipment.PostPaidCurrentBalance = 
+
+                        (COALESCE(SubscriberEquipment.PostPaidCurrentBalance, 0) + COALESCE(#tmpUpdatePrepaidCosts.TotalUnitCharge, 0))
+
+                  FROM #tmpUpdatePrepaidCosts
+
+                  INNER JOIN SubscriberEquipment ON 
+
+                        #tmpUpdatePrepaidCosts.SubscriberEquipmentID = SubscriberEquipment.SubscriberEquipmentID
+
+                        AND SubscriberEquipment.PostPaidBalanceWarning IS NOT NULL
+
+ 
+
+                  -- 3.1.11. Drop temp tables
+
+ 
+
+                  DROP TABLE #tmpUpdatePrepaidCosts
+
+                  
+
+            END
+
+      END
+
+      
+
+  -- 4. Drop unused ImportJob records.
+
+ 
+
+  DELETE FROM ImportJobs WHERE NOT EXISTS 
+
+  (SELECT ImportJobID FROM CDR WHERE 
+
+  CDR.ImportJobID = ImportJobs.ImportJobID)
+
+ 
+
+RETURN
+
+GO
+
+ 
+
+SET ANSI_NULLS OFF
+
+GO
+
+SET QUOTED_IDENTIFIER OFF
+
+GO
+
+ 
+
+ 

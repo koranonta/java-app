@@ -1,0 +1,4 @@
+  UPDATE @@TABLE_NAME@@
+@@UPDATE_VALUES@@
+   WHERE @@PRIMARY_KEY@@ = @@KEY_VALUE@@
+     AND DateDeleted IS NULL;

@@ -1,0 +1,535 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE project [
+	<!ENTITY properties SYSTEM "file:./scripts/properties.xml">
+]>
+<project name="war-build-appli-project" basedir="." default="help">
+
+
+	<!-- read the technical target -->
+	<property file="${specific.dir}/target.properties"/>
+
+	<!-- force default appli by XM the 06/09/2006 -->
+	<property name="appli" value="epcm2" />
+
+	<!-- read the application profil -->
+	<property file="./applications/${appli}/main.properties"/>
+	<!-- Modif par NPR le 30/08/2006 déplacé la construction du nom de la webapp après recup des info de main.properties -->
+	<!-- compose the target webapp name -->
+	<property name="target.webapp.name" value="${webapp.name.prefix}${line}" />
+
+	<!-- move here by XM the 06/09/2006 because some variables in properties.xml use properties in previous files  -->
+	&properties;
+	
+  <property name="config.repository" value="./common" />
+
+	<property name="lib.module" value="_lib" />
+
+	<property name="config.module" value="config-epcm2" />
+
+
+	<!-- recover the application classpath -->
+	<patternset id="jarfiles">
+		<includesfile name="${profil.applications}/${appli}/classpath.txt"/>
+	</patternset>
+
+	<!-- default value if not positionned in the target.properties -->
+	<property name="rep.version" value="DEV"/>
+	
+	
+	<target name="init">
+		<!-- test if a standard or maeven project and set some variables -->
+		<!-- if the project contains a src/main/webapp directory it's a webapp maeven project -->
+		<!-- rsa et xmc le 06/08/2007 modification de la logique de dtermination type de project maeven ou pas -->
+		<!-- lecture de la variable project.type = maeven ou pas valorisé ds le fichier profil d'application -->
+		<!--
+		<condition property="maeven.webapp.project">
+			<available file="${workspace.eclipse}/${web.name.project}/src/main/webapp" type="dir"/>
+		</condition>
+		-->
+		<!-- if the project maeven project -->
+		<if>
+			<equals arg1="${project.type}" arg2="maeven" />
+			<then>
+				<property name="web.dir" location="${workspace.eclipse}/${web.name.project}/src/main/webapp"/>
+				<property name="classes.dir" location="${workspace.eclipse}/${web.name.project}/target/classes"/>
+				<!-- need to exclude lib for war build but not web-inf because some information can be present -->
+				<property name="excludes.filter" value="WEB-INF/lib/**,WEB-INF/classes/**"/>
+				<echo message="maeven= ${maeven.webapp.project} ${web.name.project}"/>
+			</then>
+			<else>
+				<property name="web.dir" location="${workspace.eclipse}/${web.name.project}"/>
+				<property name="classes.dir" location="${workspace.eclipse}/${web.name.project}/WEB-INF/classes"/>
+				<property name="excludes.filter" value="WEB-INF/**,web-inf/**"/>
+				<echo message="autres= ${maeven.webapp.project} ${web.name.project}"/>
+			</else>
+		</if>
+	</target>
+	<target name="help">
+		<echo>
+War webapp generation, you have to specify input variable "specific.dir" on the command line  
+ for the technical information 
+"target.properties" (exemple of value "specific.dir=dev-epc14/mkgalma")
+"workspace.eclipse" (default L:/workspace)
+"appli" (profil de l'application default "epcm2" )
+	
+3 modes are available :
+
+- webapp-project-copy target : generate the war from the content of the different 
+eclipse projects (_lib, config-epcm2, webProject). 
+
+
+- webapp-conf-version target : generate the war from a configuration version of a line
+(use the application version in conformity of the configuration version and the correct
+	modeles.jar) 
+
+- webapp-appli-version target : generate the war from an application version
+(use the last information in configuration repository for the configuration line
+	and the modeles.jar in the eclipse workspace)
+</echo>
+	</target>
+
+
+
+	<!-- test OK vérifier la génération de la config seule sous le projet -->
+	<target name="webapp-project-copy" depends="init, webappcode-copy, custom-webapp, config-copy, servicesjar-copy" description="war build from current eclipse workspace">
+		<echo message="Génération webapp par copie du workspace eclipse"/>
+	</target>
+
+	<target name="webapp-conf-version" depends="init, webappcode-conf-version, custom-webapp, config-version, servicesjar-version" description="war build from a line conf version">
+		<echo message="Génération webapp à partir d'une version de configuration"/>
+	</target>
+
+	<target name="webapp-appli-version" depends="init, webappcode-appli-version, custom-webapp, config-version, servicesjar-version" description="war build from an application version">
+		<echo message="Génération webapp à partir d'une version de configuration"/>
+	</target>
+
+	<!-- WAR BUILD FROM A LINE CONFIG VERSION  -->
+	<target name="webappcode-conf-version">
+		<!-- determine a possibly prefix of the conf version file -->
+		<if>
+			<equals arg1="${appli}" arg2="cgsis" />
+		<then>
+			<property name="v-file" value="-cgsis-"/>
+		</then>
+		<else>
+			<property name="v-file" value=""/>
+		</else>
+		</if>
+		
+		<input message="Configuration Number Version for ${line} line ? (ab.cd.ef)" addproperty="num.conf.version"/>
+		<propertyregex property="conf.version"
+              input="${num.conf.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+		<condition property="do.abort">
+			<not>
+				<and>
+					<isset property="conf.version"/>
+					<available file="versions/conf/${line}/v${v-file}${conf.version}.txt" />
+				</and>
+			</not>
+		</condition>
+
+		<echo>Build application ${appli}</echo>
+
+		<loadproperties srcFile="versions/conf/${line}/v${v-file}${conf.version}.txt"/>
+		<!-- recover the version of the link to the appli -->
+		<propertycopy name="appli.version" from="${appli}"/>
+
+		<loadproperties srcFile="versions/appli/${appli}/v${appli.version}.txt"/>
+		<loadproperties srcFile="versions/version.txt"/>
+		<!-- recover the version module for this application 
+	 function of the base.module property in the main.properties -->
+
+		<propertycopy name="appli.module.version" from="${base.module}.version"/>
+		<echo>Module version : ${base.module} / v${appli.module.version}  </echo>
+		<echo>Webapp project : ${web.name.project} </echo>
+
+		<!-- recover webapp from repository -->
+		<delete dir="${webapp.dir}"/>
+		<mkdir dir="${webapp.dir}"/>
+
+		<!-- recover the webapp application 
+    function of the web.name.project property in the main.properties -->
+		<unzip src="${repository.versions}/${base.module}/V${appli.module.version}/${web.name.project}.zip" dest="${webapp.dir}"/>
+
+		<mkdir dir="${webapp.config}" />
+
+		<echo message="Recovering ${line} config, tag ${tag.label.prod}${conf.version}_${line}..."/>
+
+		<!-- recover the conf from the cvs repository -->
+		<propertyregex property="num.compliant.version"
+              input="${conf.version}"
+              regexp="([0-9][0-9]).([0-9][0-9]).([0-9][0-9])"
+              select="\1_\2_\3" />
+
+	    <!-- which sub-conf directory to recover 
+	             config-epcm2/common for epc/gpqs
+	             config-epcm2/common-cgsis/config for CGSIS -->
+		<property name="sub.module" value="${config.module}/${config.repository}"/>
+		
+		<delete dir="${src.dir}/${config.module}" failonerror="false"/>
+
+		<cvs command="login" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" />
+		<!-- XM 24/12/07 to take into account the CGSIS
+		cvs command="checkout" tag="${tag.label.prod}${num.compliant.version}_${line}" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" dest="${src.dir}" package="${config.module}/common" -->
+		<cvs command="checkout" tag="${tag.label.prod}${num.compliant.version}_${line}" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" dest="${src.dir}" package="${sub.module}" />		
+		<cvs command="logout" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" />
+		
+		<if>
+			<equals arg1="${appli}" arg2="cgsis" />
+		<then>
+		
+		</then>
+		<else>
+			<!-- recover the correct modeles.jar from the repository -->
+			<copy file="${repository.versions}/modeles/${line}/v${conf.version}.jar" tofile="${lib.dir}/modeles/modeles.jar" />			
+		</else>
+		</if>
+	
+	</target>
+    
+    	
+	<target name="config-version">
+		<!-- build the conf  -->
+		<ant antfile="config-build-appli.xml" target="webapp-config">
+			<property name="src.dir" value="${workspace}"/>
+			<!-- to force the c:\temp\configuration location instead of the eclipse workspace config-epcm2
+			     important to take into account the config recovered from CVS             -->
+			<property name="config.repository" value="${src.dir}/${config.module}/${config.repository}"/>
+			<property name="webapp.name" value="${target.webapp.name}"/>
+			<property name="webapp.dist" value="${target.webapp.dist}"/>
+		</ant>
+
+		<copy todir="${webapp.config}">
+			<fileset dir="${workspace}/config-${line}">
+				<exclude name="web.xml"/>
+				<exclude name="server-config.wsdd"/>
+			</fileset>
+		</copy>
+
+		<copy file="${workspace}/config-${line}/web.xml" tofile="${webapp.webinf}/web.xml"/>
+		<copy file="${workspace}/config-${line}/server-config.wsdd" tofile="${webapp.webinf}/server-config.wsdd" failonerror="false"/>
+
+		<!-- log4J property file has to be set under classes for maeven project -->
+		<if>
+			<equals arg1="${project.type}" arg2="maeven" />
+		<then>
+			<copy file="${workspace}/config-${line}/webapp/log4J.properties" tofile="${webapp.webinf}/classes/log4J.properties"/>
+		</then>
+		</if>
+		
+		<!-- set the version files for epc and other application -->
+		<replaceregexp file="${webapp.config}/m2/ligne/${line}/versionEpc.xml"
+                      match=".Number.(.*)./Number."  
+                      replace="&lt;Number&gt;${conf.version}&lt;/Number&gt;"/>
+
+
+	</target>
+
+	<target name="lib-copy" description="Module lib copy">
+
+		<!-- modif par NPR le 5/10/2006 - On ne doit pas copier les lib pour le module des modèles -->
+		<if>
+			<equals arg1="${module.name}" arg2="modeles"/>
+			<then>
+				<!-- si c'est le module "modeles" on ne fait rien -->
+			</then>
+			<else>
+				<delete dir="${lib.dir}/${module.name}" />
+				<mkdir dir="${lib.dir}/${module.name}" />
+				<propertycopy name="version.module" from="${module.name}.version" />
+				<property name="version.dir.name" value="V${version.module}" />
+				<echo>Copy lib from ${module.name} version ${version.module}</echo>
+				<copy todir="${lib.dir}/${module.name}">
+					<fileset dir="${repository.versions}/${module.name}/${version.dir.name}">
+						<include name="**/*.jar" />
+					</fileset>
+				</copy>
+			</else>
+		</if>
+
+	</target>
+
+	<target name="servicesjar-version">
+
+		<!-- jar files copy  -->
+
+		<mkdir dir="${webapp.lib}" />
+
+		<!-- recover the lib with the correct version -->
+		<foreach list="${modules.list}" target="lib-copy" param="module.name" trim="true" inheritall="true"/>
+
+		<!-- classpath jar copy to the lib build directory -->
+		<copy todir="${webapp.lib}" flatten="true">
+			<fileset dir="${lib.dir}" casesensitive="false">
+				<patternset refid="jarfiles" />
+			</fileset>
+		</copy>
+
+		<!-- webapp pb if we use directly the "webepcm2" jar, so that we choose to unjar 
+	to the class directory 
+	-->
+
+		<!-- recover the version of the application project from its base.module -->
+		<propertycopy name="project.appli.version" from="${base.module}.version"/>
+
+		<unjar src="${repository.versions}/${base.module}/V${project.appli.version}/${web.name.project}.jar" dest="${webapp.classes}" />
+
+		<!-- set num.conf.version eventually, use case when war is built from an application version with the last conf -->
+		<property name="num.conf.version" value="99.99.99"/>
+
+		<!-- modif NPR : on stocke le war dans le répertoire avec la version prod, etude ou dev et on rajoute le n° de version de l'appli et de la conf -->
+
+		<delete dir="${workspace}/${rep.version}" />
+		<mkdir dir="${workspace}/${rep.version}" />
+		<war warfile="${workspace}/${rep.version}/${target.webapp.name}-v${appli.version}-${num.conf.version}.war"
+      webxml="${webapp.webinf}/web.xml"
+      basedir="${webapp.dir}"
+	  excludes="${excludes.filter}">
+			<lib dir="${webapp.lib}"/>
+			<classes dir="${webapp.classes}"/>
+		</war>
+		<!-- Rajout NPR du 6/4/2006 : on déplace le war généré sur le reférentiel Metalworks -->
+		<copy file="${workspace}/${rep.version}/${target.webapp.name}-v${appli.version}-${num.conf.version}.war" tofile="${repository.webapps}/${rep.version}/${line}/${target.webapp.name}-v${appli.version}-${num.conf.version}.war" />
+
+	</target>
+
+	<!-- WAR BUILD FROM AN APPLICATION VERSION (THE LAST CONF IS USED) -->
+	<target name="webappcode-appli-version">
+		<input message="Configuration Appli Version (${appli}) ? (ab.cd.ef)" addproperty="num.appli.version"/>
+		<propertyregex property="appli.version"
+              input="${num.appli.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+		<condition property="do.abort">
+			<not>
+				<and>
+					<isset property="appli.version"/>
+					<available file="versions/appli/${appli}/v${appli.version}.txt" />
+				</and>
+			</not>
+		</condition>
+
+		<loadproperties srcFile="versions/appli/${appli}/v${appli.version}.txt"/>
+		<loadproperties srcFile="versions/version.txt"/>
+
+		<!-- recover the version module for this application 
+	 function of the base.module property in the main.properties -->
+		<property file="./applications/${appli}/main.properties"/>
+		<propertycopy name="appli.module.version" from="${base.module}.version"/>
+		<echo>Module version : ${base.module} / v${appli.module.version}  </echo>
+		<echo>Webapp project : ${web.name.project} </echo>
+
+		<!-- recover webapp from repository -->
+		<delete dir="${webapp.dir}"/>
+		<mkdir dir="${webapp.dir}"/>
+
+		<!-- recover the webapp application 
+    function of the web.name.project property in the main.properties -->
+		<unzip src="${repository.versions}/${base.module}/V${appli.module.version}/${web.name.project}.zip" dest="${webapp.dir}"/>
+
+		<mkdir dir="${webapp.config}" />
+
+		<echo message="Recovering last modifications ${line} config..."/>
+
+		<!-- set the version number to 99.99.99 -->
+		<property name="conf.version" value="99.99.99"/>
+
+		
+	    <!-- which sub-conf directory to recover 
+	             config-epcm2/common for epc/gpqs
+	             config-epcm2/common-cgsis/config for CGSIS -->
+		<property name="sub.module" value="${config.module}/${config.repository}"/>
+		
+		<delete dir="${src.dir}/${config.module}" failonerror="false"/>
+
+		<cvs command="login" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" />
+		<!-- XM 29/08/07 to take into account the CGSIS
+		cvs command="checkout" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" dest="${src.dir}" package="${config.module}/common" -->
+		<cvs command="checkout" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" dest="${src.dir}" package="${sub.module}" />		
+		<cvs command="logout" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" />
+
+		<!-- use the existing modeles.jar in the workspace -->
+
+		<copy file="${project.lib}/modeles/modeles.jar" tofile="${lib.dir}/modeles/modeles.jar" />		
+
+	</target>
+
+
+	<!-- GENERATION DU WAR A PARTIR DES PROJETS ECLIPSE -->
+
+	<target name="webappcode-copy">
+
+		<delete dir="${webapp.dir}" />
+		<mkdir dir="${webapp.dir}" />
+
+		<!-- Recovering the class and jsp files from eclipse workspace -->
+		<copy todir="${webapp.dir}">
+			<fileset dir="${web.dir}">
+				<exclude name="**/CVS/"/>
+				<exclude name="**/WEB-INF/"/>
+				<exclude name="**/work/"/>
+			</fileset>
+		</copy>
+
+
+		<mkdir dir="${webapp.webinf}" />
+		<mkdir dir="${webapp.classes}" />
+		<mkdir dir="${webapp.config}" />
+
+		<copy todir="${webapp.classes}">
+			<fileset dir="${classes.dir}">
+				<exclude name="config*/"/>
+				<exclude name="**/CVS/"/>
+			</fileset>
+		</copy>
+
+		<!-- copy eventually web-inf files except web.xml & server-config.wsdd -->
+		<if>
+			<equals arg1="${project.type}" arg2="maeven" />
+			<then>
+				<copy todir="${webapp.webinf}">
+					<fileset dir="${web.dir}/WEB-INF">
+						<exclude name="**/CVS/"/>
+						<exclude name="web.xml"/>
+						<exclude name="server-config.wsdd"/>
+					</fileset>
+				</copy>
+			</then>
+		</if>
+		<!-- use the existing modeles.jar in the workspace -->
+		<copy file="${project.lib}/modeles/modeles.jar" tofile="${lib.dir}/modeles/modeles.jar" />
+
+	</target>
+
+	<target name="custom-webapp" depends="custom-init, custom-db7, custom-db8, custom-userDB2">
+		<echo message="Custom de la webapp pour une base UDB DB2 version ${base.version}"/>
+	</target>
+	<target name="custom-init">
+		<condition property="udb7">
+			<and>
+				<equals arg1="7" arg2="${base.version}"/>
+			</and>
+		</condition>
+
+		<condition property="udb8">
+			<and>
+				<equals arg1="8" arg2="${base.version}"/>
+			</and>
+		</condition>
+	</target>
+
+	<target name="custom-db7" if="udb7">
+		<replaceregexp file="${webapp.classes}/usiframeworksettings.properties"
+                         match="security.db2.dbdriver.*$"  
+                         replace="security.db2.dbdriver = COM.ibm.db2.jdbc.app.DB2Driver"
+                         byline="true"/>
+
+		<replaceregexp file="${webapp.classes}/usiframeworksettings.properties"
+                         match="security.db2.dburl.*$"  
+                         replace="security.db2.dburl = jdbc:db2:${base.name}"
+                         byline="true"/>
+	</target>
+
+	<target name="custom-db8" if="udb8">
+		<!-- default value for the port number if it's not defined in the target.propertie file-->
+		<property name="base.port" value="50000"/>
+		<replaceregexp file="${webapp.classes}/usiframeworksettings.properties"
+                         match="security.db2.dbdriver.*$"  
+                         replace="security.db2.dbdriver = com.ibm.db2.jcc.DB2Driver"
+                         byline="true"/>
+
+		<replaceregexp file="${webapp.classes}/usiframeworksettings.properties"
+                         match="security.db2.dburl.*$"  
+                         replace="security.db2.dburl = jdbc:db2://${base.server}:${base.port}/${base.name}"
+                         byline="true"/>
+	</target>
+	<target name="custom-userDB2">
+		<!-- default value for the user/password if it's not defined in the target.propertie file -->
+		<property name="base.user" value="epc"/>
+		<property name="base.password" value="EPC"/>
+		<replaceregexp file="${webapp.classes}/usiframeworksettings.properties"
+                         match="security.db2.dbusername = epc"  
+                         replace="security.db2.dbusername = ${base.user}"
+                         byline="true"/>
+
+		<replaceregexp file="${webapp.classes}/usiframeworksettings.properties"
+                         match="security.db2.dbpassword = EPC"  
+                         replace="security.db2.dbpassword = ${base.password}"
+                         byline="true"/>
+
+	</target>
+
+	<target name="config-copy">
+		<!-- build the conf -->
+		<ant antfile="config-build-appli.xml" target="webapp-config">
+			<property name="src.dir" value="${workspace}"/>
+			<property name="webapp.name" value="${target.webapp.name}"/>
+			<property name="webapp.dist" value="${target.webapp.dist}"/>
+		</ant>
+
+		<!-- copy the conf under the build project directory 
+	 true for epcm2, to check for gpqs expert because resources are located with different way ??? -->
+		<copy todir="${webapp.config}">
+			<fileset dir="${workspace}/config-${line}">
+				<exclude name="web.xml"/>
+				<exclude name="server-config.wsdd"/>
+			</fileset>
+		</copy>
+
+		<copy file="${workspace}/config-${line}/web.xml" tofile="${webapp.webinf}/web.xml"/>
+		<copy file="${workspace}/config-${line}/server-config.wsdd" tofile="${webapp.webinf}/server-config.wsdd" failonerror="false"/>
+		
+		<!-- log4J property file has to be set under classes for maeven project -->
+		<if>
+			<equals arg1="${project.type}" arg2="maeven" />
+		<then>
+			<copy file="${workspace}/config-${line}/webapp/log4J.properties" tofile="${webapp.webinf}/classes/log4J.properties"/>
+		</then>
+		</if>
+	</target>
+
+
+	<target name="servicesjar-copy">
+
+		<!-- jar file copy under the build project directory -->
+		<mkdir dir="${webapp.lib}" />
+
+		<!-- classpath jar copy to the lib build directory -->
+		<copy todir="${webapp.lib}" flatten="true">
+			<fileset dir="${project.lib}" casesensitive="false">
+				<patternset refid="jarfiles" />
+			</fileset>
+		</copy>
+
+		<delete dir="${workspace}/${rep.version}" />
+		<mkdir dir="${workspace}/${rep.version}" />
+		<war warfile="${workspace}/${rep.version}/${target.webapp.name}-v99.99.99-99.99.99.war"
+      webxml="${webapp.webinf}/web.xml"
+      basedir="${webapp.dir}"
+	  excludes="${excludes.filter}">
+			<lib dir="${webapp.lib}"/>
+			<classes dir="${webapp.classes}"/>
+		</war>
+		<!-- Pas besoin de déplacer le war généré sur le reférentiel Metalworks car génération
+	locale au projet dans le workspace -->
+		<!-- copy file="${workspace}/${rep.version}/${target.webapp.name}-v99.99.99-99.99.99.war" tofile="${repository.webapps}/${rep.version}/${line}/${target.webapp.name}-v99.99.99-99.99.99.war" /-->
+
+	</target>
+
+	<target name="essai">
+
+		<patternset id="titi">
+			<includesfile name="applications/epcm2/classpath.txt"/>
+		</patternset>
+
+
+		<copy todir="c:/temp/configuration/lib" flatten="true">
+			<fileset dir="f:/workspace" casesensitive="false">
+				<patternset refid="titi" />
+			</fileset>
+		</copy>
+	</target>
+
+</project>

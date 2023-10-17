@@ -1,0 +1,587 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE project [
+	<!ENTITY properties SYSTEM "file:./scripts/properties.xml">
+]>
+
+<project name="version-build" basedir="." default="help">
+
+  &properties;
+
+
+ <patternset id="files.filter">
+	<include name="**/*.properties" />
+    <include name="**/*.xml" />
+ 	<include name="**/*.dtd" />
+ </patternset>  
+
+<target name="touch.jar">
+	<mkdir dir="${lib.dir}/${name}"/>
+	<touch file="${lib.dir}/${name}/${project.name}.jar"/>
+</target> 
+
+ 
+<target name="lib"> 
+
+	<delete dir="${lib.dir}/lib" failonerror="false"/>
+	<mkdir dir="${lib.dir}/lib"/>
+	
+	<echo message="Recovering external lib from cvs..."/>
+	<copy todir="${lib.dir}/lib">
+	   	<fileset dir="${repository.versions}/lib/${current.version}" >
+  			<include name="**/*.jar"/>
+  		</fileset>
+	</copy>		
+
+</target>
+
+
+
+<!-- FRAMEWORK BUILD AND VERSION -->
+ 
+<target name="framework-version" depends="lib" description="1 - build framework">
+	<property name="name" value="framework" />
+	<property name="projects" value="${framework.modules}"/>
+	
+	<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+	<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+		<property name="module.name" value="${name}" />
+    	<property name="project.modules" value="${projects}"/>
+    	<property name="project.cvs.repository" value="${framework.cvs.repository}"/>
+    	<reference refid="files.filter"/>
+  	</ant>
+	
+</target> 
+
+
+
+<!-- METALWORKS BUILD AND VERSION -->
+
+
+<target name="metalworks-version" depends="lib" description="2 - build metalworks">
+	<property name="name" value="metalworks" />
+	<property name="projects" value="${metalworks.modules}"/>
+	
+	<foreach list="${metalworks.modules}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+	<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+		<property name="module.name" value="${name}" />
+    	<property name="project.modules" value="${projects}"/>
+    	<property name="project.cvs.repository" value="${metalworks.cvs.repository}"/>
+    	<reference refid="files.filter"/>
+  	</ant>
+</target>
+
+	
+
+<!-- AUTRE BUILD : SPQR  -  Supprimé par NPR le 01/04/2008 - Ce module ne sert plus
+<target name="spqr-version"  depends="lib" description="3- build spqr">
+	<property name="name" value="spqr" />
+	<property name="projects" value="${spqr.modules}"/>
+	
+	<foreach list="${spqr.modules}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+	<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+  		<property name="module.name" value="${name}" />
+    	<property name="project.modules" value="${projects}"/>
+    	<property name="project.cvs.repository" value="${spqr.cvs.repository}"/>
+    	<reference refid="files.filter"/>
+  	</ant>
+</target>
+ -->
+<!-- GPQS BUILD -->
+<target name="gpqs-version"  depends="lib" description="3 - build gpqs">
+	<property name="name" value="gpqs" />
+	<property name="projects" value="${gpqs.modules}"/>
+	
+	<foreach list="${gpqs.modules}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+	<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+  		<property name="module.name" value="${name}" />
+    	<property name="project.modules" value="${projects}"/>
+    	<property name="project.cvs.repository" value="${gpqs.cvs.repository}"/>
+    	<reference refid="files.filter"/>
+		<property name="src.exclude" value="test/**,simulator/**,admin/**,site/**"/>
+  	</ant>
+</target>
+	
+	
+<!-- EPCM2 BUILD AND VERSION -->
+
+<target name="epcm2-version" depends="lib" description="4 - build epcm2">
+	<property name="name" value="epcm2" />
+	<property name="projects" value="${epcm2.modules}"/>
+	
+	<foreach list="${epcm2.modules}" target="touch.jar" param="project.name" inheritall="true"  trim="true"/>
+	<patternset id="files.filter">
+		<include name="**/*.properties" />
+        <include name="**/*.xml" />
+        <include name="**/*.dtd" />
+        <include name="**/*.xmi" />
+  		<exclude name="config/**"/>
+  		<exclude name="usiframework*"/>
+	</patternset>
+	<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+  		<property name="module.name" value="${name}" />
+    	<property name="project.modules" value="${projects}"/>
+    	<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+    	<reference refid="files.filter"/>
+  	</ant>
+</target>
+
+
+<!-- CONTROLEUR BUILD --> 
+<target name="controleur-version" depends="lib" description="5 - build controleur">
+		<property name="name" value="controleur" />
+		<property name="projects" value="${controleur.modules}"/>
+
+		<patternset id="files.filter">
+			<include name="**/*.properties" />
+		    <include name="**/*.xml" />
+			<exclude name="test/**"/>
+		</patternset>
+		
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+	    	<property name="project.modules" value="${projects}"/>
+	    	<property name="project.cvs.repository" value="${controleur.cvs.repository}"/>
+	    	<reference refid="files.filter"/>
+			<property name="src.exclude" value="test/**,simulator/**,admin/**,site/**"/>
+	  	</ant>
+</target> 		
+
+	<!-- AUTRE BUILD : TOOLS  -->
+<target name="tools-version"  depends="lib" description="6 - build tools">
+	<property name="name" value="tools" />
+	<property name="projects" value="${tools.modules}"/>
+	
+	<patternset id="files.filter">
+		<include name="**/*.properties" />
+	    <include name="**/*.xml" />
+	 	<include name="**/*.dtd" />
+		<include name="**/*.jpg" />
+		<include name="**/*.gif" />
+		<include name="**/*.png" />
+	 </patternset>  
+	
+	<foreach list="${tools.modules}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+	<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+  		<property name="module.name" value="${name}" />
+    	<property name="project.modules" value="${projects}"/>
+    	<property name="project.cvs.repository" value="${tools.cvs.repository}"/>
+    	<reference refid="files.filter"/>
+  	</ant>
+</target>	
+	
+	<!-- GPQS REPOSITORY BUILD AND VERSION -->
+	 
+	<target name="jrules"> 
+	
+		<delete dir="${lib.dir}/jrules" failonerror="false"/>
+		<mkdir dir="${lib.dir}/jrules"/>
+		
+		<!-- valeur par défaut -->
+		<property name="jrules.version" value="V5.1.7"/>
+		
+		<echo message="Recovering external jrules libs from versionning repository..."/>
+		<copy todir="${lib.dir}/jrules">
+		   	<fileset dir="${repository.versions}/jrules/${jrules.version}" >
+	  			<include name="**/*.jar"/>
+	  		</fileset>
+		</copy>		
+	
+	</target>
+
+	<target name="gpqs-repository-version" depends="jrules" description="7- generation d une version de gpqs-repository">
+		<property name="name" value="gpqs-repository" />
+		<property name="projects" value="${gpqs-repository.modules}"/>
+		
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+	    	<property name="project.modules" value="${projects}"/>
+	    	<property name="project.cvs.repository" value="${gpqs-repository.cvs.repository}"/>
+	    	<reference refid="files.filter"/>
+	  	</ant>
+		
+	</target> 
+
+	
+	<!-- CGSIS BUILD AND VERSION -->
+		<target name="cgsis-version"  description="8- build cgsis module">
+			<property name="name" value="cgsis" />
+			<property name="projects" value="${cgsis.modules}"/>
+
+			<foreach list="${cgsis.modules}" target="touch.jar" param="project.name" inheritall="true"  trim="true"/>
+			<patternset id="files.filter">
+				<include name="**/*.properties" />
+				<include name="**/*.xml" />
+				<include name="**/*.dtd" />
+				<include name="**/*.xmi" />
+				<exclude name="config/**"/>
+				<exclude name="usiframework*"/>
+			</patternset>
+			
+			<ant antfile="scripts/basic-version-appli-build.xml" target="modules-version">
+			  		<property name="module.name" value="${name}" />
+			    	<property name="project.modules" value="${projects}"/>
+			    	<property name="project.cvs.repository" value="${cgsis.cvs.repository}"/>
+			    	<reference refid="files.filter"/>
+			 </ant>
+		</target>
+<!-- APPLI VERSION -->
+
+<target name="appli-version" description="generation d une version applicative">
+	<echo>Application cible : ${appli}</echo>
+	<input message="Application Number Version for (${appli})? (ab.cd.ef)" addproperty="num.version"/>
+	
+	<propertyregex property="do.version"
+              input="${num.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+     
+    <echo message="${do.version}" />
+  	<condition property="do.abort">
+    <not>
+    <and>
+	   	 <isset property="do.version"/>
+	</and>
+	</not>
+  	</condition>
+  	<fail if="do.abort">Version not compliant : ab.cd.ef</fail>
+
+	<echo message="${num.version}"/>
+	
+	<copy file="${file.version}" tofile="versions/appli/${appli}/v${num.version}.txt"/>
+	
+</target>
+
+
+<!-- CONF VERSION EPC/GPQS-->
+<target name="conf-version-epc" depends="conf-version" description="X - versionne la config EPC/GPQS de la ligne">
+	   <ant antfile="scripts/basic-version-appli-build.xml" target="conf-version">
+	  		<property name="project.name" value="config-epcm2" />
+	    	<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+			<reference refid="files.filter"/>
+	  	</ant>
+</target>
+
+<!-- CONF VERSION CGSIS -->
+<target name="conf-version-cgsis" depends="conf-version" description="XI - versionne la config CGSIS de la ligne">
+	   <property file="./applications/cgsis/main.properties" prefix="local"/>
+	   <ant antfile="${local.build.version.script}" target="conf-version">
+	  		<property name="project.name" value="config-epcm2" />
+	    	<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+			<reference refid="files.filter"/>
+	  	</ant>
+</target>
+
+<target name="conf-version">
+	<input message="Configuration Number Version ? (ab.cd.ef)" addproperty="num.conf.version"/>
+	
+	<propertyregex property="conf.version"
+              input="${num.conf.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+     
+  	<condition property="do.abort">
+    <not>
+    <and>
+	   	 <isset property="conf.version"/>
+	</and>
+	</not>
+  	</condition>
+  	<fail if="do.abort">Version not compliant : ab.cd.ef</fail>
+
+	<input message="Line name ?" addproperty="line.name" validargs="${line.list}"/>
+
+
+	<input message="Application Number Version (${appli})? (ab.cd.ef)"
+    		addproperty="num.appli.version"/>
+	
+	<propertyregex property="appli.version"
+              input="${num.appli.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+     
+  	<condition property="do.abort">
+    <not>
+    <and>
+	   	 <isset property="appli.version"/>
+	   	 <available file="versions/appli/${appli}/v${appli.version}.txt" />
+	</and>
+	</not>
+  	</condition>
+  	<fail if="do.abort">Version not compliant : ab.cd.ef or not exist</fail>
+  	
+
+	<echo message="Line : ${line.name}"/>
+	<echo message="Version conf : ${num.conf.version}"/>
+	<echo message="Link to appli version (${appli}) : ${num.appli.version}"/>
+	
+	<loadproperties srcFile="versions/appli/${appli}/v${appli.version}.txt"/>
+	<loadproperties srcFile="versions/version.txt"/>
+	
+</target>
+
+
+<target name="essai">
+  	<tstamp>
+    	<format property="TODAY" pattern="yyyy-MM-dd"/>
+  	</tstamp>
+	
+	<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+	<property name="line.name" value="BiEtam"/>
+	<property name="module.name" value="config-epcm2"/>
+	<property name="project.name" value="${module.name}/common/m2/ligne/${line.name}"/>
+
+	<echo message="${project.name}->startTag=${tag.label.prod}${num.version} endDate=${TODAY}"/>
+
+	<cvs command="login" cvsRoot="${cvs.repository}:${project.cvs.repository}" />
+
+
+	<cvstagdiff2 cvsRoot="${cvs.repository}:${project.cvs.repository}"
+            destfile="c:/temp/configuration/Essai1.txt"
+            package="${project.name}"
+            startTag="PROD_V01_21_00_BiEtam"
+            endDate="${TODAY} 23:59:59"/>
+
+	<property name="project.name1" value="${module.name}/common/webapp/ligne/${line.name}"/>
+
+	<cvstagdiff2 cvsRoot="${cvs.repository}:${project.cvs.repository}"
+            destfile="c:/temp/configuration/Essai2.txt"
+            package="${project.name1}"
+            startTag="PROD_V01_21_00_BiEtam"
+            endDate="${TODAY} 23:59:59"/>
+	
+	<cvs command="logout" cvsRoot="${cvs.repository}:${project.cvs.repository}" />
+
+
+
+
+
+	<!--
+                         
+  	<cvs command="login" cvsRoot="${cvs.repository}:${metalworks.cvs.repository}" /> 
+	
+  <cvstagdiff2 cvsRoot="${cvs.repository}:${metalworks.cvs.repository}"
+                destfile="c:/temp/tagdiff.xml"
+                package="service-central"
+                startTag="PROD_V2"
+                endDate="2005-05-02 23:59:59"/>
+	<cvs cvsRoot="${cvs.repository}:${metalworks.cvs.repository}" reallyquiet="true"
+	     command="rlog -N -r1.7:1.8 service-central/src/usinor/epc/m2/nls/TraducteurDonnees.java"/>
+	
+   <cvs command="logout" cvsRoot="${cvs.repository}:${metalworks.cvs.repository}" />
+	
+-->
+   
+		
+		
+</target>
+
+	
+<!-- REMOVE CONF VERSION EPC/GPQS-->
+<target name="remove-conf-tag-epc" depends="remove-conf-tag" description="Remove the conf tag for a EPC/GPQS conf version / line">
+ 	<cvs command="login" cvsRoot="${cvs}" /> 
+	
+	<cvs command="rtag -d ${tag}" cvsRoot="${cvs}" package="config-epcm2/common" />
+	<cvs command="rtag -d ${tag}" cvsRoot="${cvs}" package="modeles" />
+	
+    <cvs command="logout" cvsRoot="${cvs}"/>
+</target>
+
+<!-- REMOVE CONF VERSION CGSIS -->
+<target name="remove-conf-tag-cgsis" depends="remove-conf-tag" description="Remove the conf tag for a CGSIS conf version / line">
+	<property file="./applications/cgsis/main.properties" prefix="local"/>
+ 	<cvs command="login" cvsRoot="${cvs}" /> 
+	
+	<cvs command="rtag -d ${tag}" cvsRoot="${cvs}" package="config-epcm2/${local.config.repository}" />
+	
+    <cvs command="logout" cvsRoot="${cvs}"/>
+</target>
+
+<target name="remove-conf-tag" >
+
+	<input message="Configuration Number Version ? (ab.cd.ef)" addproperty="num.conf.version"/>
+	
+	<propertyregex property="conf.version"
+	          input="${num.conf.version}"
+	          regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+	          select="\1" />
+	 
+	<condition property="do.abort">
+	<not>
+	<and>
+	   	 <isset property="conf.version"/>
+	</and>
+	</not>
+	</condition>
+	<fail if="do.abort">Version not compliant : ab.cd.ef</fail>
+	
+	<input message="Line name ?" addproperty="line.name" validargs="${line.list}"/>
+	
+	<!-- first conf version -> the config is tagged and the conf version file is created -->
+	<propertyregex property="num.compliant.version"
+          input="${num.conf.version}"
+          regexp="([0-9][0-9]).([0-9][0-9]).([0-9][0-9])"
+          select="\1_\2_\3" />
+	
+	<property name="cvs" value="${cvs.repository}:${epcm2.cvs.repository}" />
+	<property name="tag" value="${tag.label.prod}${num.compliant.version}_${line.name}" />
+	<echo> tag cvs a supprimer : ${tag} </echo>
+ 
+		
+</target>
+	
+<target name="project">
+
+<echo message="nom du projet : ${project.name}" />
+
+</target>
+<target name="version-change" description="generation du fichier des difference de version">
+  	<tstamp>
+    	<format property="TODAY" pattern="yyyy-MM-dd"/>
+  	</tstamp>
+  	<loadproperties srcFile="${file.version}"/>
+  	
+	
+	<echo message="Framework package..."/> 
+    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="framework" />
+    	<property name="project.modules" value="${framework.modules}"/>
+    	<property name="project.cvs.repository" value="${framework.cvs.repository}"/>
+  	</ant>
+	    
+    <echo message="Metalworks package..."/>
+    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="metalworks" />
+    	<property name="project.modules" value="${metalworks.modules}"/>
+    	<property name="project.cvs.repository" value="${metalworks.cvs.repository}"/>
+  	</ant>
+ <!-- Supprimé par NPR le 01/04/2008 - Ce module ne sert plus  	
+	    <echo message="Spqr package..."/>
+	    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+	  		<property name="module.name" value="spqr" />
+	    	<property name="project.modules" value="${spqr.modules}"/>
+	    	<property name="project.cvs.repository" value="${spqr.cvs.repository}"/>
+	  	</ant>
+ -->	
+    <echo message="Gpqs package..."/>
+    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="gpqs" />
+    	<property name="project.modules" value="${gpqs.modules}"/>
+    	<property name="project.cvs.repository" value="${gpqs.cvs.repository}"/>
+  	</ant>
+ 	
+    <echo message="Controleur package..."/>
+    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="controleur" />
+    	<property name="project.modules" value="${controleur.modules}"/>
+    	<property name="project.cvs.repository" value="${controleur.cvs.repository}"/>
+  	</ant>
+    
+    <echo message="Webapp package..."/>
+	<ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="epcm2" />
+    	<property name="project.modules" value="${epcm2.modules}"/>
+    	<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+  	</ant>
+    
+    <echo message="Gpqs Repository package..."/>
+    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="gpqs-repository" />
+    	<property name="project.modules" value="${gpqs-repository.modules}"/>
+    	<property name="project.cvs.repository" value="${gpqs-repository.cvs.repository}"/>
+  	</ant>
+	
+    <echo message="Cgsis package..."/>
+    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="cgsis" />
+    	<property name="project.modules" value="${cgsis.modules}"/>
+    	<property name="project.cvs.repository" value="${cgsis.cvs.repository}"/>
+  	</ant>
+	
+    <echo message="Tools package..."/>
+    <ant antfile="scripts/basic-version-appli-build.xml" target="get-modif">
+  		<property name="module.name" value="tools" />
+    	<property name="project.modules" value="${tools.modules}"/>
+    	<property name="project.cvs.repository" value="${tools.cvs.repository}"/>
+  	</ant>
+    
+   
+    
+</target>
+<target name="conf-version-change" description="generation du fichier des difference de conf">
+	  	<tstamp>
+	    	<format property="TODAY" pattern="yyyy-MM-dd"/>
+	  	</tstamp>
+	  	
+	<input message="Configuration Number Version ? (ab.cd.ef)" addproperty="num.conf.version"/>
+	
+	<propertyregex property="conf.version"
+              input="${num.conf.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+     
+  	<condition property="do.abort">
+    <not>
+    <and>
+	   	 <isset property="conf.version"/>
+	</and>
+	</not>
+  	</condition>
+  	<fail if="do.abort">Version not compliant : ab.cd.ef</fail>
+
+	<input message="Line name ?" addproperty="line.name" validargs="${line.list}"/>
+	
+	<ant antfile="scripts/basic-version-appli-build.xml" target="get-conf-modif">
+  		<property name="module.name" value="config-epcm2" />
+    	<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+  	</ant>
+	
+	    
+</target>
+<target name="help">
+<echo>
+Version build script, you have to choose the appropriate target :
+
+- framework-version target : version the framework projects (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx)  
+
+- metalworks-version target : version the metalworks projects (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx) 
+
+- tools-version target : version the tools projects (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx)
+
+- controleur-version target : version the controleur projects (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx)
+
+	
+- epcm2-version target : version the webapp epcm2 project (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx)
+
+- appli-version target : create an application number version from the last number version of
+each package (versions/epcm2/appli/vAB.CD.EF.txt)
+
+- conf-version target : create a configuration number version from the last configuration
+in cvs and an application version (versions/epcm2/conf/LINENAME/vAB.CD.EF.txt). 
+Tag the configuration with the label PROD_VAB_CD_EF_LINENAME 
+
+- version-change target : make a report of changes between the last tag and the repository
+	
+- conf-version-change target : make a report of changes between a conf tag and the repository for a line.
+Test only the changes on specific directory of the line m2/line and webapp/line.
+
+- remove-conf-tag target : permet de supprimer un tag CVS sur une version de conf. Ce target va s'appuyer 
+sur le n° de version de la conf et le nom de la ligne pour connaitre le tag à lever dans cvs. 
+ATTENTION :Aprés cette opération, il faut aller supprimer manuellement le fichier versions/conf/nomLigne/vxx.xx.xx.txt 
+correspondant à la version que l'on veut supprimer pour que l'on puisse refaire cette version. Ce fichier
+peut contenir les infos de versionnement de plusieurs applications; a traiter avec précaution.
+		
+</echo>
+</target>
+</project>

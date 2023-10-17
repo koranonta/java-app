@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE project [
+	<!ENTITY properties SYSTEM "file:./scripts/properties.xml">
+]>
+<project name="lib-build" basedir="." default="lib-version">
+
+	&properties;
+ 
+<!-- LIB VERSION -->
+
+<target name="init">
+	<!-- check the eclipse workspace variable -->
+	<fail>
+	   <condition>
+	   	 <not>
+	      <available file="${workspace.eclipse}" type="dir"/>
+	   	 </not>
+	   </condition>
+	</fail>
+</target>
+	
+	
+<target name="lib-version" depends="init" description="Copy libs to eclipse project from an application version">
+
+	<echo>Application cible : ${appli}</echo>
+	<input message="Application Number Version ? (ab.cd.ef)"
+    		addproperty="num.version"/>
+	
+	<propertyregex property="do.version"
+              input="${num.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+     
+	<if>
+	 <equals arg1="${num.version}" arg2="" />
+	 <then>
+	 	<property name="appli.version" value="${current.version}"/>
+	 </then>
+	 <else>
+	 	<property name="appli.version" value="${num.version}"/>
+	 	<loadproperties srcFile="versions/appli/${appli}/v${appli.version}.txt"/>
+	 	<loadproperties srcFile="versions/version.txt"/>
+	 </else>
+	</if>
+	
+	<echo>Version : ${appli.version}</echo>
+	<echo file="${project.lib}/version.txt" append="false">${appli} : ${appli.version}</echo>
+	<foreach list="${modules.list}" target="lib-copy" param="module.name" trim="true" inheritall="true"/>
+
+	<!-- recover the correct modeles.jar from the repository -->
+	<copy file="${repository.versions}/modeles/${current.version}/modeles.jar" tofile="${project.lib}/modeles/modeles.jar" />
+	<echo file="${project.lib}/modeles/version.txt" append="false">${current.version}</echo>
+</target>
+
+<target name="conf-version" depends="init" description="Copy libs to eclipse project from a conf version">
+	
+	<echo>Application cible : ${appli}</echo>
+	<input message="Line Conf Version (${appli}) ? (ab.cd.ef)"
+    		addproperty="num.version"/>
+	
+	<input message="Line name ?" addproperty="line.name" validargs="${line.list}"/>
+     
+
+ 	<property name="conf.version" value="${num.version}"/>
+ 	<loadproperties srcFile="versions/conf/${line.name}/v${conf.version}.txt"/>
+ 	
+	<!-- recover the version of the link to the appli -->
+	<propertycopy name="appli.version" from="${appli}"/>
+	
+  	<loadproperties srcFile="versions/appli/${appli}/v${appli.version}.txt"/>
+	
+	<!-- recover the version module for this application 
+	 function of the base.module property in the main.properties -->
+	<property file="./applications/${appli}/main.properties"/> 
+	
+	<propertycopy name="appli.module.version" from="${base.module}.version"/>
+	<echo>Config version : ${conf.version} / ${line.name} </echo>
+	<echo>Appli version : ${appli.version} / ${appli} </echo>
+	<echo>Module version : ${base.module} / v${appli.module.version}  </echo>
+	
+	<echo file="${project.lib}/version.txt" append="false">${appli} : ${appli.version}</echo>
+	<foreach list="${modules.list}" target="lib-copy" param="module.name" trim="true" inheritall="true"/>
+	
+	<!-- recover the correct modeles.jar from the repository -->
+	<copy file="${repository.versions}/modeles/${line.name}/v${conf.version}.jar" tofile="${project.lib}/modeles/modeles.jar" />
+	<echo file="${project.lib}/modeles/version.txt" append="false">${line.name} : ${conf.version}</echo>
+	
+</target>
+	
+<!-- MODULE LIB COPY -->
+
+<target name="lib-copy">
+	
+	<echo>Copy lib from ${module.name}</echo>
+	<delete dir="${project.lib}/${module.name}" />
+	<mkdir dir="${project.lib}/${module.name}" />
+ <if>
+ 	<equals arg1="${module.name}" arg2="modeles" />
+ <then>
+	<!-- ne pas traiter le module modeles -->
+ </then>
+ <else>
+		<if>
+		 <equals arg1="${appli.version}" arg2="${current.version}" />
+		 <then>
+		 	<property name="version.dir.name" value="${current.version}"/>
+		 </then>
+		 <else>
+		 	<propertycopy name="version.module" from="${module.name}.version" />
+		 	<property name="version.dir.name" value="V${version.module}"/>
+		 </else>
+		</if>
+		
+		<echo>version ${module.name} : ${version.dir.name}</echo>
+		<echo file="${project.lib}/${module.name}/version.txt" append="false">${version.dir.name}</echo>
+		<copy todir="${project.lib}/${module.name}">
+		   	<fileset dir="${repository.versions}/${module.name}/${version.dir.name}" >
+	  			<include name="**/*.jar"/>
+	  		</fileset>
+		</copy>
+ </else>
+ </if>
+	
+</target>
+
+
+<target name="help">
+<echo>
+Copy lib build script :
+
+- lib-version target : copy in the eclipse project the lib for a specific version of an application.
+For choosing the current version, don't fill the input field. (the jar files are copied under _lib\ref)
+
+</echo>
+</target>
+</project>

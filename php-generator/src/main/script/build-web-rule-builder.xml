@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE project [
+	<!ENTITY properties SYSTEM "file:./scripts/properties.xml">
+]>
+<project name="war-build-appli-project" basedir="." default="help">
+
+	<property name="appli" value="gpqs-web-rule-builder"/>
+	
+	<property name="appli.module" value="gpqs-repository"/>
+
+	&properties;
+
+	<property name="appli.project" value="${workspace.eclipse}/${appli}"/>
+
+  	<property name="builder.dir" value="${build.dir}/${appli}" />
+	
+	<!-- recover the application classpath -->
+	<patternset id="jarfiles">
+		<includesfile name="${profil.applications}/${appli}/classpath.txt"/>
+	</patternset>
+
+	<target name="livraison-version" depends="init, libs, ressources, livraison">
+	</target>
+
+	<target name="livraison-patch-libs" depends="init, libs, livraison-libs">
+	</target>
+
+	<target name="installation-version" depends="init, libs, ressources, installation">
+	</target>
+
+	<target name="init">
+		<echo message="Version de ${appli.module} ?"/>
+		<input message="Application Version  ? (ab.cd.ef)" addproperty="in.appli.version"/>
+		<propertyregex property="appli.version"
+              input="${in.appli.version}"
+              regexp="([0-9][0-9].[0-9][0-9].[0-9][0-9])"
+              select="\1" />
+		<condition property="do.abort">
+			<not>
+				<and>
+					<isset property="appli.version"/>
+					<available file="versions/appli/${appli.module}/v${appli.version}.txt" />
+				</and>
+			</not>
+		</condition>
+
+		<echo>Build application ${appli} : v${appli.version}</echo>
+
+		<loadproperties srcFile="versions/appli/${appli.module}/v${appli.version}.txt"/>
+
+		<delete dir="${builder.dir}"/>
+		<mkdir dir="${builder.dir}"/>
+	</target>
+	
+	<target name="libs">
+		<echo>Récuperation des libs...</echo>
+		<!-- au cas où elle ne serait pas precisée dans les fichiers de version -->
+		<property name="jrules.version" value="5.1.7"/>
+		
+		<!-- recover the lib with the correct version -->
+		<foreach list="${modules.list}" target="lib-copy" param="module.name" trim="true" inheritall="true"/>
+
+		<!-- classpath jar copy to the lib build directory -->
+		<copy todir="${builder.dir}/WEB-INF/lib" flatten="true" failonerror="true">
+			<fileset dir="${lib.dir}" casesensitive="false">
+				<patternset refid="jarfiles" />
+			</fileset>
+		</copy>
+
+		<echo>Fichier version...</echo>
+		<propertyfile file="${builder.dir}/WEB-INF/lib/version.txt" comment="Version">
+			<entry  key="builder" value="${appli.version}"/>
+			<entry  key="jrules" value="${jrules.version}"/>
+			<entry  key="bom" value="${gpqs.version}"/>
+		</propertyfile>
+		
+	</target>
+
+	<target name="lib-copy" description="Module lib copy">
+		<ant antfile="war-build-appli.xml" target="lib-copy"/>
+	</target>
+	
+	<target name="ressources">
+		<echo>Récuperation des ressources...</echo>
+		
+		<loadproperties srcfile="${appli.project}/_env/${specific.dir}/target.properties"/>
+		<property  name="envtype" value="" />
+
+			<echo>ressources...</echo>
+		<copy todir="${builder.dir}">
+			<fileset dir="${appli.project}" casesensitive="false">
+		   		 <include name="index.jsp"/>
+		   		 <include name="jsp/**"/>
+		   		 <include name="resources/**"/>
+		   		 <include name="startup/**"/>
+		   		 <exclude name="WEB-INF/**"/>
+		   		 <exclude name="**/CVS/"/>
+			</fileset>
+
+		    <filterset>
+			      <filter token="dburl" value="${dburl}"/>
+			      <filter token="dblogin" value="${dblogin}"/>
+			      <filter token="dbpwd" value="${dbpwd}"/>
+			      <filter token="envtype" value="${envtype}"/>
+		    </filterset>
+		</copy>
+		
+		<copy todir="${builder.dir}">
+			<fileset dir="${appli.project}" casesensitive="false">
+		   		 <include name="images/**"/>
+		   		 <exclude name="WEB-INF/**"/>
+		   		 <exclude name="**/CVS/"/>
+			</fileset>
+		</copy>
+		
+		<echo>customisation à partir du specific : ${specific.dir}</echo>
+		<copy todir="${builder.dir}/WEB-INF/classes" overwrite="true">
+			<fileset dir="${appli.project}/_env/${specific.dir}" casesensitive="false">
+		   		 <include name="repository.properties"/>
+			</fileset>
+		</copy>
+	
+		<copy todir="${builder.dir}/WEB-INF/classes" overwrite="true">
+			<fileset dir="${appli.project}/_env/_common" casesensitive="false">
+		   		 <include name="env.properties"/>
+		   		 <include name="log4J.properties"/>
+			</fileset>
+		    <filterset>
+			      <filter token="repdir" value="${repdir}"/>
+			      <filter token="localdir" value="${localdir}"/>
+		    </filterset>
+		</copy>
+	
+		<echo>classes...</echo>
+		<copy todir="${builder.dir}/WEB-INF">
+			<fileset dir="${appli.project}/WEB-INF" casesensitive="false">
+		   		 <exclude name="**/*.class"/>
+		   		 <exclude name="src/**"/>
+		   		 <exclude name="**/CVS/"/>
+		   		 <exclude name="**/*cvs*"/>
+			</fileset>
+		</copy>
+	</target>
+
+	<target name="livraison">
+		<property name="war.filename" value="${build.dir}/${appli}_v${appli.version}.war"/>
+		<delete file="${war.filename}" />
+		<property name="excludes.filter" value="WEB-INF/lib/**,WEB-INF/classes/**"/>
+		<war warfile="${war.filename}"
+				webxml="${builder.dir}/WEB-INF/web.xml"
+				basedir="${builder.dir}"
+				update="true"
+				excludes="${excludes.filter}">
+			<lib dir="${builder.dir}/WEB-INF/lib"/>
+			<classes dir="${builder.dir}/WEB-INF/classes"/>
+		</war>
+	</target>
+
+	<target name="livraison-libs">
+		<zip destfile="${build.dir}/${appli}_${appli.version}_PatchLibs.zip" basedir="${builder.dir}/lib"/>
+	</target>
+
+	<target name="installation">
+		<condition property="do.abort">
+			<not>
+				<isset property="local.env"/>
+			</not>
+		</condition>
+		<!-- bkp de l'install courante -->
+		<if>
+			<available  file="${local.env}" />
+			<then>
+				<echo message="Un Rule Builder est déja installé sous ${local.env} -> Back Up"/>
+				<tstamp/>
+				<property name="now" value="${DSTAMP}_${TSTAMP}" />
+				<mkdir dir="${workspace}/bkp"/>
+				<zip destfile="${workspace}/bkp/gpqs-rule-builder_${now}.zip" basedir="${local.env}"/>
+				<delete includeEmptyDirs="true">
+				    <fileset dir="${local.env}">
+				    	<!-- TODO il faut exclure les fichiers qu'on aimerait garder -->
+				    	<exclude name="_work/**"/>
+				    	<exclude name="ant/**"/>
+				    	<exclude name="conf*/**"/>
+				    	<exclude name="irl/**"/>
+				    	<exclude name="*.bat"/>
+					</fileset>
+				</delete>
+			</then>
+			<else>
+				<mkdir dir="${local.env}"/>
+			</else>
+		</if>
+		<echo message="Installation du Rule Builder sous ${local.env}"/>
+		<copy todir="${local.env}">
+			<fileset dir="${builder.dir}" casesensitive="false">
+			</fileset>
+		</copy>
+		<copy todir="${local.env}/ant">
+			<fileset dir="${appli.project}/ant" casesensitive="false">
+			</fileset>
+		</copy>
+	</target>
+
+	<target name="help">
+		<echo>
+War webapp generation, you have to specify input variable "specific.dir" on the command line  
+ for the technical information 
+"target.properties" (exemple of value "specific.dir=dev-epc14/mkgalma")
+"workspace.eclipse" (default L:/workspace)
+"appli" (profil de l'application default "epcm2" )
+	
+3 modes are available :
+
+- webapp-project-copy target : generate the war from the content of the different 
+eclipse projects (_lib, config-epcm2, webProject). 
+
+
+- webapp-conf-version target : generate the war from a configuration version of a line
+(use the application version in conformity of the configuration version and the correct
+	modeles.jar) 
+
+- webapp-appli-version target : generate the war from an application version
+(use the last information in configuration repository for the configuration line
+	and the modeles.jar in the eclipse workspace)
+</echo>
+	</target>
+
+
+</project>

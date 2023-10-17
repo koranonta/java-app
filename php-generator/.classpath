@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src/main/java"/>
+	<classpathentry kind="src" path="src/main/resources"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="lib" path="/_lib/Tools/common-parser-util.jar" sourcepath="/common-parser-util"/>
+	<classpathentry kind="lib" path="/_lib/Tools/genericIO.jar"/>
+	<classpathentry kind="con" path="org.eclipse.jst.j2ee.internal.module.container"/>
+	<classpathentry kind="lib" path="/_lib/framework/FrameworkUtil.jar" sourcepath="/FrameworkUtil/src"/>
+	<classpathentry kind="lib" path="/_lib/framework/basic-util.jar"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/mysql-parser"/>
+	<classpathentry kind="lib" path="/_lib/Tools/shardingsphere-sql-parser-engine-5.3.2.jar"/>
+	<classpathentry kind="lib" path="/_lib/antlr4/antlr4-4.13.0.jar"/>
+	<classpathentry kind="lib" path="/_lib/antlr4/antlr4-runtime-4.13.0.jar"/>
+	<classpathentry kind="lib" path="/_lib/antlr4/antlr-runtime-3.5.3.jar"/>
+	<classpathentry kind="lib" path="/_lib/antlr4/icu4j-72.1.jar"/>
+	<classpathentry kind="lib" path="/_lib/antlr4/org.abego.treelayout.core-1.0.3.jar"/>
+	<classpathentry kind="lib" path="/_lib/antlr4/ST4-4.3.4.jar"/>
+	<classpathentry kind="output" path="classes"/>
+</classpath>

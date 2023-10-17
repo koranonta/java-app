@@ -1,0 +1,564 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE project [
+	<!ENTITY classpath SYSTEM "file:./scripts/classpath.xml">
+<!ENTITY jarservices SYSTEM "file:./scripts/jarservices.xml">
+<!ENTITY properties SYSTEM "file:./scripts/properties.xml">
+]>
+
+<project name="metric-build-appli" basedir="." default="help">
+
+  &properties;
+
+	<patternset id="files.filter">
+		<include name="**/*.properties" />
+		<include name="**/*.xml" />
+		<include name="**/*.dtd" />
+	</patternset>
+
+
+	<target name="touch.jar">
+		<mkdir dir="${lib.dir}/${name}"/>
+		<touch file="${lib.dir}/${name}/${project.name}.jar"/>
+		<concat destfile="${temp.dir}\subprojects.htm" append="true">
+			<filelist dir="scripts/data" files="subproject.htm"/>
+			<filterchain>
+				<expandproperties/>
+			</filterchain>
+		</concat>
+
+		<delete dir="${docs.dir}/${name}" failonerror="false"/>
+		<delete dir="${java2html.dir}/${name}" failonerror="false"/>
+
+	</target>
+
+	<target name="init">
+		<delete dir="${temp.dir}" failonerror="false"/>
+	</target>
+
+	<target name="lib">
+		<delete dir="${lib.dir}/lib" failonerror="false"/>
+		<mkdir dir="${lib.dir}/lib"/>
+
+		<echo message="Recovering external lib from cvs..."/>
+		<copy todir="${lib.dir}/lib">
+			<fileset dir="${repository.versions}/lib/${current.version}" >
+				<include name="**/*.jar"/>
+			</fileset>
+		</copy>
+	</target>
+
+	<target name="copy-repository" description="copy jar to the repository current location">
+		<tstamp>
+			<format property="TODAY_FR" pattern="dd/MM/yyyy HH:mm"/>
+		</tstamp>
+
+		<copy todir="${repository.versions}/${name}/${current.version}">
+			<fileset dir="${lib.dir}/${name}" >
+				<include name="**/*.jar"/>
+				<include name="**/*.zip"/>
+			</fileset>
+		</copy>
+		<echo file="${repository.versions}/${name}/${current.version}/date.txt" append="false">Nightly build ${TODAY} ${TSTAMP}</echo>
+
+		<loadfile property="projects.content" srcFile="${temp.dir}\subprojects.htm"/>
+
+		<copy file="scripts/data/index.htm" tofile="${docs.dir}/${name}/index.htm">
+			<filterset>
+				<filter token="TODAY_FR" value="${TODAY_FR}"/>
+				<filter token="projects.content" value="${projects.content}"/>
+				<filter token="name" value="${name}"/>
+			</filterset>
+		</copy>
+
+		<!-- publish javadoc to web server -->
+		<!--Modifié par NPR le 01/04/2008 suite à plantage - on n'utilse plus la connection au virtual directory mais un mappage direct -->
+
+		<delete dir="${publish.dir}/doc/${name}" failonerror="false"/>
+		<copy todir="${publish.dir}/doc/${name}">
+			<fileset dir="${docs.dir}/${name}"/>
+		</copy>
+		<delete dir="${publish.dir}/html/${name}" failonerror="false"/>
+		<copy todir="${publish.dir}/html/${name}">
+			<fileset dir="${java2html.dir}/${name}"/>
+		</copy>
+
+	</target>
+	<!-- Rajout de tools-metrics par NPR le 31/5/2007 -->
+	<!-- Rajout de cgsis-metrics par NPR le 2/8/2007 -->
+	<target name="all"  depends="framework-metrics,metalworks-metrics,spqr-metrics,epcm2-metrics,tools-metrics,cgsis-metrics" description="build global">
+
+	</target>
+
+	<!-- FRAMEWORK BUILD -->
+
+	<target name="framework-metrics"  depends="init" description="build framework">
+		<property name="name" value="framework" />
+		<property name="projects" value="${framework.modules}"/>
+
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${framework.cvs.repository}"/>
+			<reference refid="files.filter"/>
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true"/>
+
+	</target>
+
+	<!-- Rajout de tools-metrics par NPR le 31/5/2007 -->
+	<!-- TOOLS BUILD -->
+
+	<target name="tools-metrics" depends="init" description="build tools">
+		<property name="name" value="tools" />
+		<property name="projects" value="${tools.modules}" />
+
+		<patternset id="files.filter">
+			<include name="**/*.properties" />
+		    <include name="**/*.xml" />
+		 	<include name="**/*.dtd" />
+			<include name="**/*.jpg" />
+			<include name="**/*.gif" />
+			<include name="**/*.png" />
+		 </patternset>  
+
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true" />
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}" />
+			<property name="project.cvs.repository" value="${tools.cvs.repository}" />
+			<reference refid="files.filter" />
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true" />
+
+	</target>
+
+	<!-- Rajout de cgsis-metrics par NPR le 1/8/2007 -->
+	<!-- CGSIS BUILD -->
+		<target name="cgsis-metrics" depends="init" description="build cgsis">
+		<property name="name" value="cgsis" />
+		<property name="projects" value="${cgsis.modules}" />
+
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<patternset id="files.filter">
+			<include name="**/*.properties" />
+			<include name="**/*.xml" />
+			<include name="**/*.dtd" />
+			<include name="**/*.xmi" />
+			<exclude name="config/**"/>
+			<exclude name="usiframework*"/>
+		</patternset>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}" />
+			<property name="project.cvs.repository" value="${cgsis.cvs.repository}"/>
+			<reference refid="files.filter"/>
+					</ant>
+
+		<antcall target="copy-repository" inheritall="true" />
+
+	</target>
+
+
+
+	<!-- METALWORKS BUILD -->
+	<target name="metalworks-metrics" depends="init" description="build metalworks">
+		<property name="name" value="metalworks" />
+		<property name="projects" value="${metalworks.modules}"/>
+
+		<foreach list="${metalworks.modules}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${metalworks.cvs.repository}"/>
+			<reference refid="files.filter"/>
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true" />
+
+	</target>
+
+	<!-- AUTRE BUILD : SPQR  -->
+	<target name="spqr-metrics"  depends="init" description="build spqr">
+		<property name="name" value="spqr" />
+		<property name="projects" value="${spqr.modules}"/>
+
+		<foreach list="${spqr.modules}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${spqr.cvs.repository}"/>
+			<reference refid="files.filter"/>
+		</ant>
+		<!--
+  	<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+  		<property name="module.name" value="diagnostic" />
+    	<property name="project.modules" value="${diagnostic.modules}"/>
+    	<property name="project.cvs.repository" value="${diagnostic.cvs.repository}"/>
+    	<reference refid="files.filter"/>
+  	</ant>
+ -->
+
+		<antcall target="copy-repository" inheritall="true" />
+
+	</target>
+
+
+	<!-- EPCM2 BUILD AND VERSION -->
+	<target name="epcm2-metrics" depends="init" description="build epcm2">
+		<property name="name" value="epcm2" />
+		<property name="projects" value="${epcm2.modules}"/>
+
+		<foreach list="${epcm2.modules}" target="touch.jar" param="project.name" inheritall="true"  trim="true"/>
+		<patternset id="files.filter">
+			<include name="**/*.properties" />
+			<include name="**/*.xml" />
+			<include name="**/*.dtd" />
+			<include name="**/*.xmi" />
+			<exclude name="config/**"/>
+			<exclude name="usiframework*"/>
+		</patternset>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+			<reference refid="files.filter"/>
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true" />
+
+
+	</target>
+
+
+	<!-- GPQS BUILD -->
+
+	<target name="gpqs-metrics"  depends="init" description="build gpqs">
+		<property name="name" value="gpqs" />
+		<property name="projects" value="${gpqs.modules}"/>
+
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${gpqs.cvs.repository}"/>
+			<reference refid="files.filter"/>
+			<property name="src.exclude" value="test/**,simulator/**,admin/**,site/**"/>
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true"/>
+
+	</target>
+
+	<!-- CONTROLEUR BUILD -->
+
+	<target name="controleur-metrics"  depends="init" description="build gpqs">
+		<property name="name" value="controleur" />
+		<property name="projects" value="${controleur.modules}"/>
+
+		<patternset id="files.filter">
+			<include name="**/*.properties" />
+			<include name="**/*.xml" />
+			<exclude name="test/**"/>
+		</patternset>
+
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${controleur.cvs.repository}"/>
+			<reference refid="files.filter"/>
+			<property name="src.exclude" value="test/**,simulator/**,admin/**,site/**"/>
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true"/>
+
+	</target>
+
+
+	<!-- GPQS REPOSITORY BUILD -->
+
+	<target name="jrules">
+		<!-- on force la version de jrules si pas passée en paramètre avant -->
+		<!-- valeur par défaut -->
+		<property name="jrules.version" value="V5.1.7"/>
+		<mkdir dir="${lib.dir}/jrules"/>
+
+		<echo message="Recovering external jrules lib from cvs..."/>
+		<copy todir="${lib.dir}/jrules">
+			<fileset dir="${repository.versions}/jrules/${jrules.version}" >
+				<include name="**/*.jar"/>
+			</fileset>
+		</copy>
+	</target>
+
+	<target name="gpqs-repository-metrics"  depends="init, jrules" description="build gpqs-repository">
+		<property name="name" value="gpqs-repository" />
+		<property name="projects" value="${gpqs-repository.modules}"/>
+
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<!--	<patternset id="files.filter">
+			<include name="**/*.properties" />
+	        <include name="**/*.xml" />
+	        <include name="**/*.dtd" />
+	        <include name="**/*.xmi" />
+	  		<exclude name="*.properties"/>
+	  		<exclude name="usiframework*"/>
+		</patternset>-->
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${gpqs-repository.cvs.repository}"/>
+			<reference refid="files.filter"/>
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true"/>
+
+	</target>
+
+
+	<!-- Modeles BUILD -->
+
+	<target name="modeles-metrics"  depends="init" description="build modeles">
+		<property name="name" value="modeles" />
+		<property name="projects" value="modeles"/>
+
+		<foreach list="${projects}" target="touch.jar" param="project.name" inheritall="true" trim="true"/>
+		<ant antfile="scripts/basic-metrics-build.xml" target="modules-version">
+			<property name="module.name" value="${name}" />
+			<property name="project.modules" value="${projects}"/>
+			<property name="project.cvs.repository" value="${epcm2.cvs.repository}"/>
+			<reference refid="files.filter"/>
+		</ant>
+
+		<antcall target="copy-repository" inheritall="true"/>
+
+	</target>
+	<!-- APPLI VERSION -->
+
+	<target name="essai1">
+
+		<buildnumber file="${temp.dir}\num.txt"/>
+		<echo>${build.number} - ${subapp.name}</echo>
+		<loadproperties srcFile="scripts/webapp.properties"/>
+
+		<propertycopy name="struts.config" from="${subapp.name}.struts.config" />
+		<propertycopy name="ressource" from="${subapp.name}.ressource" />
+		<propertycopy name="class.ressource" from="${subapp.name}.class.ressource" />
+		<propertycopy name="navigation" from="${subapp.name}.navigation" />
+		<propertycopy name="subtab.number" from="${subapp.name}.subtab.number" />
+		<propertycopy name="subtab.action" from="${subapp.name}.subtab.action" />
+
+		<concat destfile="${temp.dir}\subweb.xml" append="true">
+			<filelist dir="scripts" files="subweb.xml"/>
+			<filterchain>
+				<expandproperties/>
+			</filterchain>
+		</concat>
+
+		<concat destfile="${temp.dir}\submaster.xml" append="true">
+			<filelist dir="scripts" files="submaster.xml"/>
+			<filterchain>
+				<expandproperties/>
+			</filterchain>
+		</concat>
+
+		<concat destfile="${temp.dir}\subwebapp.xml" append="true">
+			<filelist dir="scripts" files="subwebapp.xml"/>
+			<filterchain>
+				<expandproperties/>
+			</filterchain>
+		</concat>
+
+
+		<!-- élaboration du fichier tile de la sous webapp 
+         en remplacant la position de l'index de la sous webapp -->
+
+	</target>
+
+
+	<target name="essai">
+		<!-- publish javadoc to web server -->
+		<delete dir="${publish.dir}/doc/metalworks" failonerror="false"/>
+		<copy todir="${publish.dir}/doc/metalworks">
+			<fileset dir="${docs.dir}/metalworks"/>
+		</copy>
+		<delete dir="${publish.dir}/html/metalworks" failonerror="false"/>
+		<copy todir="${publish.dir}/html/metalworks">
+			<fileset dir="${java2html.dir}/metalworks"/>
+		</copy>
+		<delete dir="${publish.dir}/doc/spqr" failonerror="false"/>
+		<copy todir="${publish.dir}/doc/spqr">
+			<fileset dir="${docs.dir}/spqr"/>
+		</copy>
+		<delete dir="${publish.dir}/html/spqr" failonerror="false"/>
+		<copy todir="${publish.dir}/html/spqr">
+			<fileset dir="${java2html.dir}/spqr"/>
+		</copy>
+
+		<copy todir="${publish.dir}/doc/epcm2">
+			<fileset dir="${docs.dir}/epcm2"/>
+		</copy>
+
+		<copy todir="${publish.dir}/html/epcm2">
+			<fileset dir="${java2html.dir}/epcm2"/>
+		</copy>
+
+		<copy todir="${publish.dir}/doc/gpqs">
+			<fileset dir="${docs.dir}/gpqs"/>
+		</copy>
+
+		<copy todir="${publish.dir}/html/gpqs">
+			<fileset dir="${java2html.dir}/gpqs"/>
+		</copy>
+
+		<!--
+	<delete file="c:\configuration\subweb.xml"/>
+	<delete file="c:\configuration\subwebapp.xml"/>
+	<delete file="c:\configuration\submaster.xml"/>
+	<delete file="c:\configuration\num.txt"/>
+
+	<foreach list="produit,suivi,contexte" target="essai1" param="subapp.name" />
+
+	<loadfile property="webxml.content" srcFile="${temp.dir}\subweb.xml"/>
+	<loadfile property="masterdef.content" srcFile="${temp.dir}\submaster.xml"/>
+	<loadfile property="webapptab.content" srcFile="${temp.dir}\subwebapp.xml"/>
+	<echo>
+		****
+		${webxml.content}
+		****
+		${masterdef.content}
+		****
+		${webapptab.content}
+	</echo>
+	-->
+		<!--
+                        
+  	<cvs command="login" cvsRoot="${cvs.repository}:${metalworks.cvs.repository}" /> 
+	
+	
+   <cvstagdiff2 cvsRoot="${cvs.repository}:${metalworks.cvs.repository}"
+                destfile="c:/temp/tagdiff.xml"
+                package="service-central"
+                startTag="PROD_V2"
+                endDate="2005-05-02 23:59:59"/>
+
+   <cvs command="logout" cvsRoot="${cvs.repository}:${metalworks.cvs.repository}" />
+	
+	
+	<cvs command="history -ac -r PROD_V2 -n WebEpcM2" />
+	
+	
+	<cvs command="checkout" tag="PROD_V01_01_00_MkGalma" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" dest="${src.dir}" package="config-epcm2/common" />
+
+	
+	<cvs command="logout" cvsRoot="${cvs.repository}:${epcm2.cvs.repository}" />
+	-->
+		<!-- 
+<foreach list="essai1,essai2,essai3" target="project" param="project.name" />
+
+		
+-->
+		<!--
+		<property name="cvs.root" value=":pserver:xmc:xmc@150.41.48.128:f:/cvs2/_users/xmc" />
+	  	<cvs command="login" cvsRoot="${cvs.root}" /> 
+  	
+		<cvs command="checkout" tag="LABEL2" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester" />
+		
+		<cvs command="rtag -l LABEL2" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester/src"/>
+	
+		<cvs command="logout" cvsRoot="${cvs.root}" />
+		-->
+		<!--		
+<cvs command="rtag LABEL2" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester/src/usinor/epc/config/locales.xml"/>
+		<cvs command="rtag LABEL1" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester/src/usinor/epc/config"/>
+		<cvs command="rtag LABEL" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester"/>
+		
+		<cvs command="add /test-digester/versions/test.txt" cvsRoot="${cvs.root}" dest="${src.dir}" />
+		<cvs command="commit /test-digester /versions" cvsRoot="${cvs.root}" dest="${src.dir}" />
+-->
+		<!--
+		<cvs command="add /test-digester/versions" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester" />
+		<cvs command="add /test-digester/versions/test.txt" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester" />
+		
+		<cvs command="commit -m version" cvsRoot="${cvs.root}" dest="${src.dir}" package="test-digester" />
+		-->
+
+
+
+		<!--
+  		<buildnumber file="versions/framework.txt"/>
+  		
+  		
+  		<buildnumber file="versions/metalworks.txt"/>
+  		<buildnumber file="versions/epcm2.txt"/>
+-->
+
+		<!--
+  		<cvs command="log cvs-config.xml" cvsRoot="${cvs.root}" package="Ant" />
+  		<cvstagdiff cvsRoot="${cvs.root}" package="Ant" destfile="c:/temp/tagdiff.xml" startTag="PROD_V1" endTag="PROD_V2"/>
+  		<cvs command="rtag PROD_V1" cvsRoot="${cvs.root}" package="Ant" />
+  		<cvs command="rtag -b TMA_V1" cvsRoot="${cvs.root}" package="Ant" />
+		<cvs command="checkout" cvsRoot="${cvs.root}" dest="${src.dir}" package="Ant" />
+
+		-->
+
+
+	</target>
+
+<!-- Construction du fichier zip servant de Référentiels pour Process Editor (Reférentiel M2) -->
+<!-- Rajouté par NPR le 23/06/2008 -->
+
+	<target name="referentiel_ProcessEditor"  description="Referentiel M2 Process Editor">
+		
+		<!-- extraction des fichiers de conf M2 à partir de CVS -->
+		<delete dir="${src.dir}/Refm2" failonerror="false"/>
+		<property name="cvs.root" value="${cvs.repository}:${epcm2.cvs.repository}"/>
+
+		<cvs command="login" cvsRoot="${cvs.root}" /> 
+		  	
+		<cvs command="checkout" cvsRoot="${cvs.root}" dest="${src.dir}/Refm2" package="config-epcm2/common/m2" />
+		
+		<cvs command="logout" cvsRoot="${cvs.root}" />
+
+		<delete file="F:/servmodfic/EPCRef.zip" failonerror="false"/>
+		<zip destfile="F:/servmodfic/EPCRef.zip">
+			<zipfileset dir="${src.dir}/Refm2/config-epcm2/common/m2" excludes=".*, **/CVS,ligne/**, modeles/**"/>
+		</zip>
+	</target>
+
+
+
+	<target name="help">
+		<echo>
+Version build script, you have to choose the appropriate target :
+
+- framework-version target : version the framework projects (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx)  
+
+- metalworks-version target : version the metalworks projects (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx) 
+
+- autre-version target : version the spqr and diagnostic projects (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx)
+
+- epcm2-version target : version the webapp epcm2 project (use an automatic increment 
+stored in the versions/version.txt file). Checkout, compile, jar, tag (PROD_Vx) 
+and branch (MAINT_Vx)
+
+- appli-version target : create an application number version from the last number version of
+each package (versions/epcm2/appli/vAB.CD.EF.txt)
+
+- conf-version target : create a configuration number version from the last configuration
+in cvs and an application version (versions/epcm2/conf/LINENAME/vAB.CD.EF.txt). 
+Tag the configuration with the label PROD_VAB_CD_EF_LINENAME 
+
+- version-change target : make a report of changes between the last tag and the repository
+</echo>
+	</target>
+</project>

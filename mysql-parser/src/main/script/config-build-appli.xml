@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE project [
+	<!ENTITY properties SYSTEM "file:./scripts/properties.xml">
+]>
+<project name="config-build" basedir="." default="fullconfig">
+
+<!--
+<property file="${specific.dir}/target.properties"/> 
+
+<property name="webapp.config.target" value="${webapp.dist}/${webapp.name}/WEB-INF/classes/config"/>
+
+<property name="workspace" value="c:\temp\configuration"/>
+	
+<property name="dir.temp" value="${workspace}\tmp"/>
+	
+<property name="config.repository" value="./common" />
+
+<property name="src.dir" value="${workspace}"/>
+
+<property name="config.repository" value="./common" />
+
+
+	
+
+<property name="appli" value="epcm2" />
+
+	<taskdef resource="net/sf/antcontrib/antcontrib.properties">
+	  <classpath>
+	    <pathelement location="../_lib/autres/ant-contrib-0.5.jar"/>
+	  </classpath>
+	</taskdef> 
+-->	
+	
+	<!-- force default appli by XM the 06/09/2006 -->
+	  <property name="appli" value="epcm2" />	
+	  <property name="appli.version" value="99.99.99"/>
+	  <property name="rep.version" value="DEV"/>
+	  <property name="smtp" value="SMTP.USINOR.COM"/>
+
+	<!-- read the application profil -->
+	<!--  <property file="${profil.applications}/${appli}/main.properties"/> -->
+	 <property file="./applications/${appli}/main.properties"/> 	
+
+	
+	  <!-- read the technical target -->
+	  <property file="${specific.dir}/target.properties"/>
+	  <!-- compose the target webapp name -->
+	  <property name="target.webapp.name" value="$webapp.name.prefix}${line}" />	
+	
+	  <property name="webapp.dist" value="${workspace.eclipse}"/>
+<!-- modif par NPR le 24/8/2006 - correctif pour compatibilité avec war-build-appli.xml -->
+<!-- on recupere le variable de main.properties en remplacement de target.properties -->
+	<property name="webapp.name" value="${web.name.project}"/>
+	  	
+	  &properties;
+		
+	  <property name="config.repository" value="./common" />
+	 
+	  <property name="lib.module" value="_lib" />	
+		
+	  <property name="config.module" value="config-epcm2" />	
+	
+	
+<target name="fullconfig" depends="init, webapp-config, detect-config, save-config, copy-config">
+	<echo message="Génération de configuration de la ligne ${line} complète"/>
+</target>
+<target name="init">
+		<!-- if the project contains a src/main/webapp directory it's a webapp maeven project -->
+		<condition property="maeven.webapp.project">
+		      	<available file="${webapp.dist}/${webapp.name}/src/main/webapp" type="dir"/>
+		</condition>
+	
+	<!-- if the project nmaeven project -->
+	<if>
+	 	<equals arg1="${maeven.webapp.project}" arg2="true" />
+ 	<then>
+ 		<property name="web.inf.root" value="src/main/webapp/WEB-INF"/>
+ 		<property name="web.inf.dir" value="target"/>
+ 	</then>
+	<else>
+		<property name="web.inf.root" value="WEB-INF"/>
+		<property name="web.inf.dir" value="WEB-INF"/>
+	</else>
+	</if>
+	<echo message="WEB-INF-ROOT : ${web.inf.root}"/>
+	<echo message="WEB-INF-DIR  : ${web.inf.dir}"/>
+	
+</target>
+
+<!--
+Attention webapp-config can be called by the war script or directly for building the config
+in the eclipse project
+-->
+<target name="webapp-config">
+
+	<delete dir="${src.dir}/${line}" />
+
+	<!-- Set the line if line.name.src not defined in target.properties file -->
+	<property name="line.name.src" value="${line}"/>
+	
+	<!-- Set the variable : used when the call is made from war build script -->
+	<property name="web.inf.dir" value="WEB-INF"/>
+	
+	<!-- determine the build script to call if is not mentioned in the main.property -->
+	<property name="build.conf.script" value="scripts/config-appli.xml"/>
+	
+	<!-- Recovering the config from the repository (eclipse project) -->
+	<echo message="Configuration recover from ${config.repository}"/>
+	
+	<delete dir="${src.dir}/config" />
+	<mkdir dir="${src.dir}/config" />
+
+	<!-- test if it's the  standard build-conf script -->
+	<if>
+	 	<equals arg1="${build.conf.script}" arg2="scripts/config-appli.xml" />
+ 	<then>
+	
+	<copy todir="${src.dir}/config">
+	   	<fileset dir="${config.repository}">
+	   		 <exclude name="**/CVS/"/>
+	   		 <exclude name="**/WEB-INF/"/>
+	   		 <exclude name="**/ligne/"/>
+	  	</fileset>
+	</copy>
+	<copy todir="${src.dir}/config">
+	   	<fileset dir="${config.repository}">
+	   		 <include name="**/${line}/"/>
+	   		 <include name="**/${line.name.src}/"/>
+	   		 <include name="**/_dtd/m2/ligne/"/>
+	   		 <include name="**/_dtd/gpqs/ligne/"/>
+	   		 <include name="**/_dtd/webapp/ligne/"/>
+	  	</fileset>
+	</copy>
+	
+	<!-- Recovering the custom config if present -->
+	<echo message="Custom configuration recover from ${specific.dir}"/>
+	<copy todir="${src.dir}" overwrite="true">
+	   	<fileset dir="${specific.dir}">
+	   		 <exclude name="**/CVS/"/>
+	   		 <exclude name="target.properties"/>
+	  	</fileset>
+	</copy>
+	
+ 	</then>
+	<else>
+		<!-- if a specific build-conf then copy all the repository without exclusion rules -->
+		<copy todir="${src.dir}/config">
+			<fileset dir="${config.repository}">
+				   <exclude name="**/CVS/"/>
+				   <exclude name="target.properties"/>
+			</fileset>
+		</copy>
+	</else>
+	</if>
+	
+	<!-- Set items if not defined -->
+	<property name="initial.language" value="fr"/>
+	<property name="destination" value="src"/>
+	<property name="base.version" value="7"/>
+	<property name="base.name" value="noel"/>
+	<property name="base.user" value="epc"/>	
+	<property name="base.password" value="EPC"/>
+		
+	 
+	 <!-- Build the conf -->
+	 <echo message="Generate configuration to the specific target"/>
+	
+	 <ant antfile="${build.conf.script}" target="all">
+	  	<property name="root.config.orig" value="${src.dir}/config"/>
+	  	<property name="root.config.dist" value="${src.dir}/config-${line}"/>
+	  	<property name="root.webinf.dist" value="${src.dir}/config-${line}"/>
+	  	<property name="webapp.config.target" value="${webapp.dist}/${webapp.name}/${web.inf.dir}/classes/config"/>
+	  	<property name="webapp.name" value="${webapp.name}"/>
+		<property name="webapp.dist" value="${webapp.dist}"/>
+	 </ant>
+	
+	 <!-- Copy the current modeles.jar from the repository -->
+	 <!-- to the ref, use for a direct call at config-build-appli -->
+	 <!-- don't modify lib/ref/modeles/modeles.jar
+	 <copy file="${repository.versions}/modeles/${current.version}/modeles.jar" tofile="${project.lib}/modeles/modeles.jar" overwrite="true" />
+	 <property name="appli.version" value="${current.version}" />
+	 <echo file="${project.lib}/modeles/version.txt" append="false">${appli.version}</echo>
+	 -->
+</target>
+
+
+
+
+<target name="copy-config" depends="detect-config, save-config, save-webxml">
+	<echo message="Overwrite the project config..."/>
+	
+	<delete dir="${webapp.dist}/${webapp.name}/WEB-INF/${destination}/${destination.target}" />
+
+
+	
+	<delete file="${webapp.dist}/${webapp.name}/${web.inf.root}/web.xml" />
+	<delete file="${webapp.dist}/${webapp.name}/${web.inf.root}/server-config.wsdd" />
+	
+	<copy file="${src.dir}/config-${line}/web.xml" tofile="${webapp.dist}/${webapp.name}/${web.inf.root}/web.xml"/>
+	<copy file="${src.dir}/config-${line}/server-config.wsdd" tofile="${webapp.dist}/${webapp.name}/${web.inf.root}/server-config.wsdd" failonerror="false"/>
+	
+	<echo message="Copy to ${webapp.dist}/${webapp.name}/WEB-INF/${destination}/${destination.target}"/>
+	<copy todir="${webapp.dist}/${webapp.name}/WEB-INF/${destination}/${destination.target}">
+	   	<fileset dir="${src.dir}/config-${line}">
+	   		 <exclude name="**/CVS/"/>
+	   		 <exclude name="**/WEB-INF/"/>
+			 <exclude name="web.xml"/>
+			 <exclude name="server-config.wsdd"/>
+	  	</fileset>
+	</copy>
+</target>
+
+<target name="detect-config">
+	<!-- destination.target can be set in the target.properties at the value of "config"
+	 overwrite directly the conf in the eclipse project -->
+	<property name="destination.target" value="config-${line}"/>
+	<echo message="Building config under ${destination.target}"/>
+	
+	
+	<available file="${webapp.dist}/${webapp.name}/WEB-INF/${destination}/${destination.target}" type="dir" property="config.present"/>
+	<available file="${webapp.dist}/${webapp.name}/${web.inf.root}/web.xml" property="webxml.present"/>
+</target>
+
+<target name="save-config" if="config.present">
+	<input message="Do you want to overwrite the config of ${line} (o/n)?"
+    		validargs="o,n"
+    		addproperty="do.delete"/>
+  	<condition property="do.abort">
+    <and>
+	   	 <equals arg1="n" arg2="${do.delete}"/>
+	</and>
+  	</condition>
+  	<fail if="do.abort">Build stopped. The config has been built under ${src.dir}\config-${line}</fail>
+
+	<delete dir="${src.dir}/save/" />
+
+	<copy todir="${src.dir}/save">
+	   	<fileset dir="${webapp.dist}/${webapp.name}/WEB-INF/${destination}/${destination.target}">
+	   		 <exclude name="**/CVS/"/>
+	   		 <exclude name="**/WEB-INF/"/>
+	  	</fileset>
+	</copy>
+	<!-- copy log4J.properties to the root for maeven project -->
+	<if>
+		<equals arg1="${maeven.webapp.project}" arg2="true" />
+ 	<then>
+ 	    <copy file="${webapp.dist}/${webapp.name}/WEB-INF/${destination}/${destination.target}/webapp/log4J.properties" tofile="${webapp.dist}/${webapp.name}/src/main/resources/log4J.properties"/>	
+ 	</then>
+	</if>
+</target>
+<target name="save-webxml" if="webxml.present">
+    <copy file="${webapp.dist}/${webapp.name}/${web.inf.root}/web.xml" tofile="${src.dir}/save/web.xml"/>	
+    <copy file="${webapp.dist}/${webapp.name}/${web.inf.root}/server-config.wsdd" tofile="${src.dir}/save/server-config.wsdd" failonerror="false"/>	
+</target>
+
+</project>
