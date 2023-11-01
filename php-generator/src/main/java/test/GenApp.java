@@ -16,7 +16,7 @@ public class GenApp {
   }
 
   public static void main(String[] _args) throws Exception {
-    String configFn = "C:/KNN/app-projects/stock-management/sql/code-generation.properties";
+    String configFn = "E:/KNN/app-projects/healinghere/db/code-generation.properties";
     GenApp genApp = new GenApp(configFn);
     genApp.run();
     System.exit(0);

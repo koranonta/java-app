@@ -1,0 +1,11 @@
+{
+  "info": {
+    "_postman_id": "c978321b-9337-4e04-852c-ec0bd4e7b171",
+    "name": "@@TABLE_NAME@@",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "13254973"
+  },
+  "item": [
+@@API_METHODS@@
+  ]
+}

@@ -117,4 +117,8 @@ public class GenBase {
   public List<ArtifactBean> getArtifacts() {
     return m_artifactList;
   }
+
+  protected void clearArtifacts() {
+    m_artifactList.clear();
+  }
 }

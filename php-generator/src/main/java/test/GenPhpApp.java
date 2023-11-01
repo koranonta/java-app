@@ -20,7 +20,9 @@ import com.satcomgroup.util.basic.StringUtil;
 
 import bean.ArtifactBean;
 import bean.TableBean;
+import generator.GenHtml;
 import generator.GenPhp;
+import generator.GenPostman;
 import generator.GenSp;
 import parser.SqlParser;
 import scanner.SqlScanner;
@@ -80,6 +82,8 @@ public class GenPhpApp {
     try {
       GenSp genSp = new GenSp(_configFn);
       GenPhp genPhp = new GenPhp(_configFn);
+      GenPostman genPostman = new GenPostman(_configFn);
+      GenHtml genHtml = new GenHtml(_configFn);
       ConfigHandler config = genSp.getConfig();
       String inpFn = config.getProp(GenConstants.K_INPUT_FILE);
       InputStream is = new FileInputStream(new File(inpFn));
@@ -96,6 +100,9 @@ public class GenPhpApp {
         for (TableBean tb : parser.getDbBean().getTableList()) {
           List<ArtifactBean> sqlArtifacts = genSp.run(tb);
           List<ArtifactBean> phpArtifacts = genPhp.run(tb);
+          genPostman.run(tb);
+          genHtml.run(tb);
+
           if (sqlArtifacts.size() > 0) {
             for (ArtifactBean elem : sqlArtifacts) {
               FileUtil.writeFile(sqlDir + File.separator + elem.getFileName(), elem.getSourceCode());

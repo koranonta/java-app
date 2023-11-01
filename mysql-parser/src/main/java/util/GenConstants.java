@@ -95,6 +95,7 @@ public class GenConstants {
   public static final String K_DOT_CLASSES_DOT_PHP = ".classes.php";
   public static final String K_DOT_PHP = ".php";
   public static final String K_POST_CODE = "@@POST_CODE@@";
+  public static final String K_PUT_CODE = "@@PUT_CODE@@";
 
   // DB access
   public static final String K_PHP_DB_CLASS = "db.classes.php";
@@ -125,6 +126,8 @@ public class GenConstants {
   public static final String K_PHP_API_DIR = "php.api.dir";
   public static final String K_PHP_CLASSES_DIR = "php.classes.dir";
   public static final String K_SQL_DIR = "sql.dir";
+  public static final String K_POSTMAN_DIR = "postman.dir";
+  public static final String K_HTML_DIR = "html.dir";
   public static final String K_GEN_AUTHOR = "author";
   public static final String K_PHP_TEMPLATE_PATH = "php.template.path";
   public static final String K_SQL_TEMPLATE_PATH = "sql.template.path";
@@ -141,5 +144,18 @@ public class GenConstants {
   public static final String K_TD = "<td>";
   public static final String K_END_TD = "</td>";
   public static final String K_FLOAT = "FLOAT";
+
+  // POSTMAN
+  public static final String K_POSTMAN_SCRIPT_TEMPLATE = "api-methods.json";
+  public static final String K_API_METHODS = "@@API_METHODS@@";
+  public static final String K_DOT_JSON = ".json";
+
+  // HTML
+  public static final String K_HTML_TEMPLATE = "html-template.html";
+  public static final String K_HTML_FIELDS = "@@HTML_FIELDS@@";
+  public static final String K_NAME = "@@NAME@@";
+  public static final String K_LABEL = "@@LABEL@@";
+  public static final String K_DOT_HTML = ".html";
+  public static final String K_TITLE = "@@TITLE@@";
 
 }

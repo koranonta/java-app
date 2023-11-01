@@ -1,9 +1,7 @@
 package generator;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import com.satcomgroup.util.basic.StringUtil;
 
@@ -12,20 +10,14 @@ import bean.FieldBean;
 import bean.TableBean;
 import util.GenConstants;
 import util.GenConstants.K_ARTIFACT_TYPES;
-import util.StringBufferExt;
 import util.Util;
 
-public class GenPhp extends GenBase {
+public class GenPhp02 extends GenBase {
   private String m_template;
-  private Map<String, String> m_bodyValyeMap = new LinkedHashMap<String, String>();
 
-  public GenPhp(String _configFn) throws Exception {
+  public GenPhp02(String _configFn) throws Exception {
     super(_configFn);
     m_template = getConfig().getProp("php.template.path");
-    m_bodyValyeMap.put("INT", "-1");
-    m_bodyValyeMap.put("VARCHAR", "\"--String--\"");
-    m_bodyValyeMap.put("FLOAT", "0.00");
-    m_bodyValyeMap.put("DateTime", "\"2023-01-01\"");
   }
 
   private void closePhpFunc() {
@@ -146,28 +138,19 @@ public class GenPhp extends GenBase {
     closePhpFunc();
   }
 
-  private String getCommonResponse(TableBean _table) {
-    StringBufferExt buf = new StringBufferExt();
-    buf.appendLn(StringUtil.SP(2) + "if ($res):");
-    buf.appendLn(StringUtil.SP(4) + "$response = array( 'res' => $okMsg, '"
-        + Util.getSingleName(_table.getName()).toLowerCase() + "' => $res );");
-    buf.appendLn(StringUtil.SP(4) + "Response::success($response);");
-    buf.appendLn(StringUtil.SP(2) + "else:");
-    buf.appendLn(StringUtil.SP(4) + "Response::error($errMsg);");
-    buf.append(StringUtil.SP(2) + "endif;");
-    return buf.toString();
-  }
-
   private void genApi(TableBean _table) {
     String tableName = _table.getName();
-
-    // Generate input parameter retrieval
     clearBuffer();
     String var = "$" + Util.getSingleName(_table.getName()).toLowerCase();
     int maxFieldLength = getMaxFieldsLength(_table.getFields());
     boolean first = true;
     String pKey = "";
     String fieldName = "";
+
+    appendLn(StringUtil.SP(2) + "//$img = $_FILES['imgInput'];");
+    appendLn(StringUtil.SP(2) + "//$imgName = isset($img) ? $img['name'] : $_POST['image'];");
+    appendLn("");
+
     appendLn(StringUtil.SP(2) + var + " = array(");
     for (FieldBean fb : _table.getFields()) {
       if (!isSpecialField(fb.getName())) {
@@ -190,34 +173,37 @@ public class GenPhp extends GenBase {
     appendLn(StringUtil.SP(3) + "," + StringUtil.filler(quote("loginid"), maxFieldLength) + "=> $_POST['loginid']");
     appendLn(StringUtil.SP(2) + ");");
     appendLn("");
-    String inputParam = m_buf.toString();
 
-    // Generate POST method
-    clearBuffer();
-    appendLn(StringUtil.SP(2) + "//$img = $_FILES['imgInput'];");
-    appendLn(StringUtil.SP(2) + "//$imgName = isset($img) ? $img['name'] : $_POST['image'];");
-    appendLn("");
-    appendLn(StringUtil.SP(2) + "$res    = $" + tableName.toLowerCase() + "->add(" + var + ");");
-    appendLn(StringUtil.SP(2) + "$okMsg  = 'New " + Util.getSingleName(_table.getName()).toLowerCase() + " added';");
+    appendLn(StringUtil.SP(2) + "$id = $_POST['" + pKey + "'];");
+    appendLn(StringUtil.SP(2) + "if (isset($id)):");
+    appendLn(StringUtil.SP(4) + var + "['" + pKey + "'] = $id;");
+    appendLn(StringUtil.SP(4) + "$res    = $" + tableName.toLowerCase() + "->update(" + var + ");");
+    appendLn(StringUtil.SP(4) + "$okMsg  = '" + Util.getSingleName(_table.getName()) + " id [ ' . $id . ' ] updated';");
+    appendLn(StringUtil.SP(4) + "$errMsg = 'Unable to update " + Util.getSingleName(_table.getName())
+        + " id [ ' . $id . ' ]';");
+    appendLn(StringUtil.SP(2) + "else:");
+    appendLn(StringUtil.SP(4) + "$res    = $" + tableName.toLowerCase() + "->add(" + var + ");");
+    appendLn(StringUtil.SP(4) + "$okMsg  = 'New " + Util.getSingleName(_table.getName()).toLowerCase() + " added';");
     appendLn(
-        StringUtil.SP(2) + "$errMsg = 'Unable to add " + Util.getSingleName(_table.getName()).toLowerCase() + "';");
-    appendLn(getCommonResponse(_table));
+        StringUtil.SP(4) + "$errMsg = 'Unable to add " + Util.getSingleName(_table.getName()).toLowerCase() + "';");
+    appendLn(StringUtil.SP(2) + "endif;");
+    appendLn("");
+
+    appendLn(StringUtil.SP(2) + "if ($res):");
+    appendLn(StringUtil.SP(4) + "$response = array( 'res' => $okMsg, '"
+        + Util.getSingleName(_table.getName()).toLowerCase() + "' => $res );");
+    appendLn(StringUtil.SP(4) + "Response::success($response);");
+    appendLn(StringUtil.SP(2) + "else:");
+    appendLn(StringUtil.SP(4) + "Response::error($errMsg);");
+    appendLn(StringUtil.SP(2) + "endif;");
+
     appendLn("");
     appendLn(StringUtil.SP(2) + "//  Save image");
     appendLn(StringUtil.SP(2) + "//if (isset($img['name']) && $img['error'] == 0):");
     appendLn(StringUtil.SP(2) + "//  $imgHandler->saveImage($img);");
     appendLn(StringUtil.SP(2) + "//endif;");
-    String postCode = m_buf.toString();
 
-    // Generate Update method
-    clearBuffer();
-    appendLn(StringUtil.SP(2) + var + "['" + pKey + "'] = $id;");
-    appendLn(StringUtil.SP(2) + "$res    = $" + tableName.toLowerCase() + "->update(" + var + ");");
-    appendLn(StringUtil.SP(2) + "$okMsg  = '" + Util.getSingleName(_table.getName()) + " id [ ' . $id . ' ] updated';");
-    appendLn(StringUtil.SP(2) + "$errMsg = 'Unable to update " + Util.getSingleName(_table.getName())
-        + " id [ ' . $id . ' ]';");
-    appendLn(getCommonResponse(_table));
-    String updateCode = m_buf.toString();
+    String postCode = m_buf.toString();
 
     clearBuffer();
     String apiCode = loadFile(m_template + GenConstants.K_PHP_API_TEMPLATE);
@@ -229,8 +215,7 @@ public class GenPhp extends GenBase {
         .replace(GenConstants.K_INSTANTIATE_CLASS, instantiateClass);
     apiCode = apiCode.replaceAll(GenConstants.K_OBJECT_NAME, objName);
     apiCode = apiCode.replace(GenConstants.K_OBJECT_PARAM, Util.getSingleName(objName));
-    apiCode = apiCode.replace(GenConstants.K_POST_CODE, inputParam + postCode);
-    apiCode = apiCode.replace(GenConstants.K_PUT_CODE, inputParam + updateCode);
+    apiCode = apiCode.replace(GenConstants.K_POST_CODE, postCode);
     appendLn(apiCode);
   }
 
@@ -287,7 +272,6 @@ public class GenPhp extends GenBase {
     genUpdate(_table, singleTabName, pKeyParam, param);
     genDelete(singleTabName, pKeyParam);
     appendLn("}");
-    clearArtifacts();
     addArtifact(K_ARTIFACT_TYPES.PHP_CLASS, fn, m_buf.toString());
     fn = _table.getName().toLowerCase() + GenConstants.K_DOT_PHP;
     genApi(_table);
@@ -297,7 +281,6 @@ public class GenPhp extends GenBase {
     genIndexApiClass();
     addArtifact(K_ARTIFACT_TYPES.PHP_API, GenConstants.K_PHP_INDEX_API, m_buf.toString());
     genListUi(_table);
-
     return getArtifacts();
   }
 }
